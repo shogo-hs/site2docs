@@ -42,6 +42,7 @@ class GraphConfig:
 
     min_cluster_size: int = 1
     label_tfidf_terms: int = 5
+    url_pattern_depth: int = 3
 
 
 @dataclass(slots=True)

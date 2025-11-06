@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from html import unescape
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Iterable
 from urllib.parse import urljoin, urldefrag
@@ -44,6 +45,30 @@ class ExtractedPage:
     headings: list[str]
     links: list[str]
     captured_at: datetime
+
+
+class _FallbackAnchorParser(HTMLParser):
+    """BeautifulSoup が利用できない場合の簡易リンクパーサー。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._links: list[str] = []
+
+    @property
+    def links(self) -> list[str]:
+        return self._links
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "a":
+            return
+        href = ""
+        for name, value in attrs:
+            if name.lower() == "href":
+                href = (value or "").strip()
+                break
+        if not href or href.startswith(("javascript:", "mailto:", "tel:")):
+            return
+        self._links.append(href)
 
 
 class ContentExtractor:
@@ -114,11 +139,14 @@ class ContentExtractor:
 
     def _extract_links(self, html: str, base_url: str) -> list[str]:
         if BeautifulSoup is None:
-            return []
-        soup = BeautifulSoup(html, "lxml")
+            parser = _FallbackAnchorParser()
+            parser.feed(html)
+            candidates = parser.links
+        else:
+            soup = BeautifulSoup(html, "lxml")
+            candidates = [(tag.get("href") or "").strip() for tag in soup.find_all("a")]
         links: set[str] = set()
-        for tag in soup.find_all("a"):
-            href = (tag.get("href") or "").strip()
+        for href in candidates:
             if not href or href.startswith(("javascript:", "mailto:", "tel:")):
                 continue
             resolved = self._resolve_link(href, base_url)

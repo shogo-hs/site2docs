@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Sequence
+import re
+from typing import Sequence
+from urllib.parse import urlparse
 
 from .config import GraphConfig
 from .extraction import ExtractedPage
@@ -51,7 +53,15 @@ class SiteGraph:
         adjacency = self._build_adjacency(pages)
         groups = self._cluster_with_networkx(adjacency)
         if not groups:
-            groups = self._cluster_by_directory(pages)
+            pattern_groups, remaining = self._cluster_by_url_pattern(pages)
+            if pattern_groups:
+                groups = pattern_groups
+                if remaining:
+                    remaining_pages = [page for page in pages if page.page_id in remaining]
+                    if remaining_pages:
+                        groups.extend(self._cluster_by_directory(remaining_pages))
+            else:
+                groups = self._cluster_by_directory(pages)
         clusters: list[Cluster] = []
         used_slugs: set[str] = set()
         for idx, group in enumerate(groups, start=1):
@@ -92,11 +102,64 @@ class SiteGraph:
             return []
         return groups
 
+    def _cluster_by_url_pattern(self, pages: Sequence[ExtractedPage]) -> tuple[list[set[str]], set[str]]:
+        buckets: dict[str, set[str]] = defaultdict(set)
+        for page in pages:
+            pattern = self._extract_url_pattern(page.url)
+            if not pattern:
+                continue
+            buckets[pattern].add(page.page_id)
+        if not buckets:
+            return [], set()
+        groups: list[set[str]] = []
+        assigned: set[str] = set()
+        for pattern in sorted(buckets):
+            members = buckets[pattern]
+            if len(members) >= self._config.min_cluster_size:
+                groups.append(set(members))
+                assigned.update(members)
+        remaining = {page.page_id for page in pages if page.page_id not in assigned}
+        return groups, remaining
+
     def _cluster_by_directory(self, pages: Sequence[ExtractedPage]) -> list[set[str]]:
         buckets: dict[Path, set[str]] = defaultdict(set)
         for page in pages:
             buckets[page.file_path.parent].add(page.page_id)
         return list(buckets.values())
+
+    def _extract_url_pattern(self, url: str) -> str:
+        if not url:
+            return ""
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"}:
+            return ""
+        segments = [segment for segment in parsed.path.split("/") if segment]
+        normalized = [self._normalize_url_segment(segment) for segment in segments]
+        normalized = [segment for segment in normalized if segment]
+        if not normalized:
+            return ""
+        depth = max(1, min(self._config.url_pattern_depth, len(normalized)))
+        pattern_segments = normalized[:depth]
+        pattern = "/".join(pattern_segments)
+        base = parsed.netloc or ""
+        return f"{base}/{pattern}" if base else pattern
+
+    def _normalize_url_segment(self, segment: str) -> str:
+        cleaned = segment.strip().lower()
+        if not cleaned:
+            return ""
+        if "." in cleaned:
+            cleaned = cleaned.split(".")[0]
+        if re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", cleaned):
+            return "{uuid}"
+        digit_count = sum(ch.isdigit() for ch in cleaned)
+        if digit_count and digit_count == len(cleaned):
+            return "{num}"
+        if digit_count >= 3 and digit_count / max(len(cleaned), 1) >= 0.5:
+            cleaned = re.sub(r"\d+", "{num}", cleaned)
+        cleaned = re.sub(r"[^a-z0-9{}-]+", "-", cleaned)
+        cleaned = cleaned.strip("-")
+        return cleaned
 
     def _infer_label(self, documents: Sequence[str]) -> str:
         if not documents:
