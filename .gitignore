@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 site2docs/.venv/
+.DS_Store
+site_backup/
+site2docs/output/
