@@ -86,6 +86,11 @@ class ContentExtractor:
                     return "", extracted
             except Exception:
                 pass
+        if not self._config.fallback_plain_text:
+            raise RuntimeError(
+                "読み取り可能な本文抽出に失敗しました。ExtractionConfig.fallback_plain_text を True に設定すると"
+                " プレーンテキストへのフォールバックを有効化できます。"
+            )
         if BeautifulSoup is None:
             return "", html
         soup = BeautifulSoup(html, "lxml") if BeautifulSoup is not None else None
