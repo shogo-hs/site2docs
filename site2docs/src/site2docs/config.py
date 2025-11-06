@@ -23,6 +23,7 @@ class RenderConfig:
     expand_texts: Sequence[str] = ("more", "show more", "もっと見る", "詳細", "展開")
     wait_until: str = "networkidle"
     render_timeout: float = 30.0
+    auto_expand_candidates: bool = True
 
 
 @dataclass(slots=True)

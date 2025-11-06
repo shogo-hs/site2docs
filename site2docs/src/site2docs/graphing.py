@@ -53,12 +53,14 @@ class SiteGraph:
         if not groups:
             groups = self._cluster_by_directory(pages)
         clusters: list[Cluster] = []
+        used_slugs: set[str] = set()
         for idx, group in enumerate(groups, start=1):
             page_ids = sorted(group)
             label = self._infer_label([self._page_by_id(pid, pages).markdown for pid in page_ids])
-            slug = slugify(label) if label else f"cluster-{idx:02d}"
-            cluster_id = f"cl_{slug or idx:02d}"
-            clusters.append(Cluster(cluster_id=cluster_id, label=label or f"Cluster {idx}", slug=slug or f"cluster-{idx}", page_ids=page_ids))
+            raw_slug = slugify(label) if label else ""
+            slug = self._ensure_unique_slug(raw_slug, used_slugs, idx)
+            cluster_id = f"cl_{slug}"
+            clusters.append(Cluster(cluster_id=cluster_id, label=label or f"Cluster {idx}", slug=slug, page_ids=page_ids))
         return clusters
 
     # Helpers ----------------------------------------------------------
@@ -116,3 +118,13 @@ class SiteGraph:
             if page.page_id == page_id:
                 return page
         raise KeyError(page_id)
+
+    def _ensure_unique_slug(self, slug: str, used: set[str], idx: int) -> str:
+        base = slug or f"cluster-{idx:02d}"
+        candidate = base
+        suffix = 2
+        while candidate in used:
+            candidate = f"{base}-{suffix:02d}"
+            suffix += 1
+        used.add(candidate)
+        return candidate

@@ -2,7 +2,7 @@
 name = "site2docs"
 version = "0.1.0"
 description = "Static documentation generator from archived sites"
-readme = "../README.md"
+readme = "README.md"
 authors = [
     { name = "Codex", email = "codex@openai.com" }
 ]
@@ -17,6 +17,11 @@ dependencies = [
     "python-slugify",
     "beautifulsoup4",
     "lxml",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
 ]
 
 [project.scripts]

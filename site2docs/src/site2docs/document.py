@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Sequence
 
 from .extraction import ExtractedPage
 from .graphing import Cluster
@@ -35,6 +35,12 @@ def build_markdown(cluster: Cluster, pages: Sequence[ExtractedPage], created_at:
     body: list[str] = []
     body.append(f"# {cluster.label}\n")
 
+    summary_lines = _build_summary(ordered_pages)
+    if summary_lines:
+        body.append("## 概要")
+        body.extend(summary_lines)
+        body.append("")
+
     if any(page.headings for page in ordered_pages):
         body.append("## 目次")
         for page in ordered_pages:
@@ -57,3 +63,26 @@ def build_markdown(cluster: Cluster, pages: Sequence[ExtractedPage], created_at:
 def write_markdown(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+def _build_summary(pages: Sequence[ExtractedPage]) -> list[str]:
+    summary_lines: list[str] = []
+    for page in pages:
+        snippet = _first_significant_line(page.markdown)
+        if not snippet:
+            continue
+        summary_lines.append(f"- {snippet}")
+        if len(summary_lines) >= 3:
+            break
+    return summary_lines
+
+
+def _first_significant_line(markdown: str) -> str:
+    for raw_line in markdown.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if len(line) > 120:
+            return f"{line[:117]}..."
+        return line
+    return ""

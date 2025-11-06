@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 from .config import RenderConfig
 
@@ -14,6 +15,9 @@ try:  # pragma: no cover - optional dependency
 except Exception:  # pragma: no cover - executed when dependency missing
     async_playwright = None  # type: ignore[assignment]
     Browser = object  # type: ignore[misc,assignment]
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -25,26 +29,117 @@ class RenderedPage:
     final_url: str
 
 
+ProgressCallback = Callable[[int, int, Path], None]
+
+
+_AUTO_EXPAND_HEURISTICS = """
+() => {
+    const clicked = new Set();
+    const tryClick = (el) => {
+        if (!el || clicked.has(el)) {
+            return;
+        }
+        const style = window.getComputedStyle(el);
+        if (style && style.visibility === 'hidden' || style.display === 'none') {
+            return;
+        }
+        if (typeof el.click === 'function') {
+            el.click();
+            clicked.add(el);
+        }
+    };
+
+    const selectors = [
+        '[aria-expanded="false"]',
+        '[data-expand]',
+        '[data-toggle]',
+        '[data-accordion]',
+        '[data-collapsible]',
+        '.accordion',
+        '.accordion-item',
+        '.accordion-button',
+        '.collapse',
+        '.expand',
+        '.expander',
+        '.faq-item',
+        '.read-more',
+        '.show-more',
+    ];
+
+    selectors.forEach((selector) => {
+        document.querySelectorAll(selector).forEach((el) => {
+            const button = el.matches('button, [role="button"], a') ? el : el.querySelector('button, [role="button"], a');
+            if (button) {
+                tryClick(button);
+            }
+        });
+    });
+
+    document.querySelectorAll('[aria-controls]').forEach((el) => tryClick(el));
+
+    document.querySelectorAll('details:not([open])').forEach((detail) => {
+        detail.setAttribute('open', '');
+    });
+
+    return clicked.size;
+}
+"""
+
+
+_AUTO_EXPAND_BY_TEXT = """
+(texts) => {
+    const lowered = (texts || []).map((text) => text.toLowerCase());
+    if (!lowered.length) {
+        return 0;
+    }
+    let count = 0;
+    const elements = Array.from(document.querySelectorAll('button, [role="button"], a'));
+    for (const element of elements) {
+        const label = (element.innerText || element.getAttribute('aria-label') || '').toLowerCase();
+        if (!label) {
+            continue;
+        }
+        if (lowered.some((text) => label.includes(text))) {
+            element.click();
+            count += 1;
+        }
+    }
+    return count;
+}
+"""
+
+
 class PageRenderer:
     """Playwright を用いて HTML ページをレンダリングし、利用不可の場合はフォールバックします。"""
 
     def __init__(self, config: RenderConfig) -> None:
         self._config = config
 
-    async def render_many(self, paths: Iterable[Path]) -> list[RenderedPage]:
+    async def render_many(self, paths: Iterable[Path], progress: ProgressCallback | None = None) -> list[RenderedPage]:
         """ローカル HTML ファイルを順番にレンダリングします。"""
 
+        path_list = list(paths)
         pages: list[RenderedPage] = []
         if async_playwright is None:
-            for path in paths:
+            total = len(path_list)
+            for index, path in enumerate(path_list, start=1):
                 pages.append(self._read_without_render(path))
+                if progress is not None:
+                    progress(index, total, path)
+                else:
+                    logger.info("Playwright を利用せずに読み込みました (%d/%d): %s", index, total, path.name)
             return pages
 
         async with async_playwright() as playwright:  # type: ignore[misc]
             browser = await playwright.chromium.launch()
             try:
-                for path in paths:
+                total = len(path_list)
+                for index, path in enumerate(path_list, start=1):
                     pages.append(await self._render_single(browser, path))
+                    if progress is not None:
+                        progress(index, total, path)
+                    else:
+                        logger.info("レンダリング中 (%d/%d): %s", index, total, path.name)
             finally:
                 await browser.close()
         return pages
@@ -67,30 +162,19 @@ class PageRenderer:
             await page.evaluate("window.scrollBy(0, document.body.scrollHeight)")
             await asyncio.sleep(self._config.scroll_pause)
 
-        if not self._config.expand_texts:
-            return
-        expand_script = """
-        (texts) => {
-            const elements = Array.from(document.querySelectorAll('button, [role="button"], a'));
-            for (const element of elements) {
-                const label = (element.innerText || element.getAttribute('aria-label') || '').toLowerCase();
-                for (const text of texts) {
-                    if (label.includes(text.toLowerCase())) {
-                        element.click();
-                    }
-                }
-            }
-        }
-        """
-        await page.evaluate(expand_script, list(self._config.expand_texts))
+        if self._config.auto_expand_candidates:
+            await page.evaluate(_AUTO_EXPAND_HEURISTICS)
+
+        if self._config.expand_texts:
+            await page.evaluate(_AUTO_EXPAND_BY_TEXT, list(self._config.expand_texts))
 
     def _read_without_render(self, path: Path) -> RenderedPage:
         html = path.read_text(encoding="utf-8", errors="ignore")
         return RenderedPage(source_path=path, final_html=html, final_url=path.as_uri())
 
 
-async def render_paths(paths: Iterable[Path], config: RenderConfig) -> list[RenderedPage]:
+async def render_paths(paths: Iterable[Path], config: RenderConfig, progress: ProgressCallback | None = None) -> list[RenderedPage]:
     """複数パスをまとめてレンダリングするためのヘルパー。"""
 
     renderer = PageRenderer(config)
-    return await renderer.render_many(paths)
+    return await renderer.render_many(paths, progress=progress)

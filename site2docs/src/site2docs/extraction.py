@@ -7,6 +7,7 @@ from datetime import datetime
 from html import unescape
 from pathlib import Path
 from typing import Iterable
+from urllib.parse import urljoin, urldefrag
 
 from .config import ExtractionConfig
 
@@ -52,13 +53,14 @@ class ContentExtractor:
         self._config = config
 
     def extract(self, page_id: str, html: str, *, url: str, file_path: Path, captured_at: datetime) -> ExtractedPage:
+        normalized_url = self._normalize_base_url(url, file_path)
         title, content_html = self._extract_readable(html)
         headings = self._extract_headings(content_html)
-        links = self._extract_links(html)
+        links = self._extract_links(html, normalized_url)
         markdown = self._convert_to_markdown(content_html)
         return ExtractedPage(
             page_id=page_id,
-            url=url,
+            url=normalized_url,
             file_path=file_path,
             title=title,
             markdown=markdown,
@@ -105,15 +107,18 @@ class ContentExtractor:
                     headings.append(text)
         return headings
 
-    def _extract_links(self, html: str) -> list[str]:
+    def _extract_links(self, html: str, base_url: str) -> list[str]:
         if BeautifulSoup is None:
             return []
         soup = BeautifulSoup(html, "lxml")
         links: set[str] = set()
         for tag in soup.find_all("a"):
             href = (tag.get("href") or "").strip()
-            if href:
-                links.add(href)
+            if not href or href.startswith(("javascript:", "mailto:", "tel:")):
+                continue
+            resolved = self._resolve_link(href, base_url)
+            if resolved:
+                links.add(resolved)
         return sorted(links)
 
     def _convert_to_markdown(self, content_html: str) -> str:
@@ -126,6 +131,18 @@ class ContentExtractor:
             return content_html
         soup = BeautifulSoup(content_html, "lxml")
         return soup.get_text("\n")
+
+    def _normalize_base_url(self, url: str, file_path: Path) -> str:
+        base = url or file_path.as_uri()
+        normalized, _ = urldefrag(base)
+        return normalized or file_path.as_uri()
+
+    def _resolve_link(self, href: str, base_url: str) -> str:
+        absolute = urljoin(base_url, href)
+        normalized, _ = urldefrag(absolute)
+        if not normalized or normalized == base_url:
+            return ""
+        return normalized
 
 
 def extract_contents(
