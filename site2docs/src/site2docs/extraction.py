@@ -1,0 +1,136 @@
+"""HTML ページからコンテンツを抽出するユーティリティ群。"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime
+from html import unescape
+from pathlib import Path
+from typing import Iterable
+
+from .config import ExtractionConfig
+
+try:  # pragma: no cover - optional dependency
+    from readability import Document  # type: ignore
+except Exception:  # pragma: no cover
+    Document = None  # type: ignore[misc]
+
+try:  # pragma: no cover - optional dependency
+    import trafilatura  # type: ignore
+except Exception:  # pragma: no cover
+    trafilatura = None  # type: ignore[misc]
+
+try:  # pragma: no cover - optional dependency
+    from markdownify import markdownify as html_to_markdown  # type: ignore
+except Exception:  # pragma: no cover
+    html_to_markdown = None  # type: ignore[misc]
+
+try:  # pragma: no cover - optional dependency
+    from bs4 import BeautifulSoup  # type: ignore
+except Exception:  # pragma: no cover
+    BeautifulSoup = None  # type: ignore[misc]
+
+
+@dataclass(slots=True)
+class ExtractedPage:
+    """HTML ページを正規化した表現。"""
+
+    page_id: str
+    url: str
+    file_path: Path
+    title: str
+    markdown: str
+    headings: list[str]
+    links: list[str]
+    captured_at: datetime
+
+
+class ContentExtractor:
+    """レンダリング済み HTML から記事相当のコンテンツを抽出します。"""
+
+    def __init__(self, config: ExtractionConfig) -> None:
+        self._config = config
+
+    def extract(self, page_id: str, html: str, *, url: str, file_path: Path, captured_at: datetime) -> ExtractedPage:
+        title, content_html = self._extract_readable(html)
+        headings = self._extract_headings(content_html)
+        links = self._extract_links(html)
+        markdown = self._convert_to_markdown(content_html)
+        return ExtractedPage(
+            page_id=page_id,
+            url=url,
+            file_path=file_path,
+            title=title,
+            markdown=markdown,
+            headings=headings,
+            links=links,
+            captured_at=captured_at,
+        )
+
+    # Internal helpers -------------------------------------------------
+
+    def _extract_readable(self, html: str) -> tuple[str, str]:
+        if self._config.readability and Document is not None:
+            try:
+                doc = Document(html)
+                title = unescape(doc.short_title())
+                return title, doc.summary(html_partial=True)
+            except Exception:
+                pass
+        if self._config.trafilatura and trafilatura is not None:
+            try:
+                extracted = trafilatura.extract(html, include_comments=False, include_tables=True, favor_recall=True)
+                if extracted:
+                    return "", extracted
+            except Exception:
+                pass
+        if BeautifulSoup is None:
+            return "", html
+        soup = BeautifulSoup(html, "lxml") if BeautifulSoup is not None else None
+        if soup is None:
+            return "", html
+        title = soup.title.string.strip() if soup.title and soup.title.string else ""
+        main = soup.body or soup
+        return title, str(main)
+
+    def _extract_headings(self, content_html: str) -> list[str]:
+        if BeautifulSoup is None or not self._config.preserve_headings:
+            return []
+        soup = BeautifulSoup(content_html, "lxml")
+        headings: list[str] = []
+        for level in ("h1", "h2", "h3"):
+            for node in soup.find_all(level):
+                text = node.get_text(strip=True)
+                if text:
+                    headings.append(text)
+        return headings
+
+    def _extract_links(self, html: str) -> list[str]:
+        if BeautifulSoup is None:
+            return []
+        soup = BeautifulSoup(html, "lxml")
+        links: set[str] = set()
+        for tag in soup.find_all("a"):
+            href = (tag.get("href") or "").strip()
+            if href:
+                links.add(href)
+        return sorted(links)
+
+    def _convert_to_markdown(self, content_html: str) -> str:
+        if html_to_markdown is not None:
+            try:
+                return html_to_markdown(content_html, strip="")
+            except Exception:
+                pass
+        if BeautifulSoup is None:
+            return content_html
+        soup = BeautifulSoup(content_html, "lxml")
+        return soup.get_text("\n")
+
+
+def extract_contents(
+    pages: Iterable[ExtractedPage],
+) -> list[ExtractedPage]:
+    """後方互換性のために残している何もしないラッパー。"""
+
+    return list(pages)

@@ -1,0 +1,27 @@
+[project]
+name = "site2docs"
+version = "0.1.0"
+description = "Static documentation generator from archived sites"
+readme = "../README.md"
+authors = [
+    { name = "Codex", email = "codex@openai.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "playwright",
+    "readability-lxml",
+    "trafilatura",
+    "networkx",
+    "markdownify",
+    "scikit-learn",
+    "python-slugify",
+    "beautifulsoup4",
+    "lxml",
+]
+
+[project.scripts]
+site2docs = "site2docs.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
