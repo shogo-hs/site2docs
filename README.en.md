@@ -53,13 +53,13 @@ flowchart LR
 Generate Markdown and a manifest from the bundled sample archive:
 ```bash
 uv run site2docs \
-  --input ./site_backup/ariseanalytics.com \
-  --out ./output/ariseanalytics \
+  --input ./site_backup/sample_site \
+  --out ./output/sample_site \
   --verbose
 ```
-- Cluster-level Markdown appears under `output/ariseanalytics/docs/` (e.g., `service-com-https.md`).
-- `output/ariseanalytics/manifest.json` stores page IDs, cluster IDs, URLs, and capture timestamps.
-- Tail `output/ariseanalytics/logs/build_summary.json` to observe the `discovered → rendered → extracting → clustering → completed` stages.
+- Cluster-level Markdown appears under `output/sample_site/docs/` (e.g., `example-cluster.md`).
+- `output/sample_site/manifest.json` stores page IDs, cluster IDs, URLs, and capture timestamps.
+- Tail `output/sample_site/logs/build_summary.json` to observe the `discovered → rendered → extracting → clustering → completed` stages.
 
 ## CLI Options
 | Option | Default | Description |

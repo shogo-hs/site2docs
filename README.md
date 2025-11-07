@@ -55,13 +55,13 @@ flowchart LR
 最小構成で Markdown と manifest を生成する例です。
 ```bash
 uv run site2docs \
-  --input ./site_backup/ariseanalytics.com \
-  --out ./output/ariseanalytics \
+  --input ./site_backup/sample_site \
+  --out ./output/sample_site \
   --verbose
 ```
-- `output/ariseanalytics/docs/*.md` にクラスタ単位のドキュメントが作成されます（例: `output/ariseanalytics/docs/service-com-https.md`）。
-- `output/ariseanalytics/manifest.json` にはページ ID、クラスタ ID、URL、取得時刻が格納されます。
-- `output/ariseanalytics/logs/build_summary.json` を `tail -f` すると、`discovered → rendered → extracting → clustering → completed` の進捗が確認できます。
+- `output/sample_site/docs/*.md` にクラスタ単位のドキュメントが作成されます（例: `output/sample_site/docs/example-cluster.md`）。
+- `output/sample_site/manifest.json` にはページ ID、クラスタ ID、URL、取得時刻が格納されます。
+- `output/sample_site/logs/build_summary.json` を `tail -f` すると、`discovered → rendered → extracting → clustering → completed` の進捗が確認できます。
 
 ## CLI オプション一覧
 | オプション | 既定値 | 説明 |
