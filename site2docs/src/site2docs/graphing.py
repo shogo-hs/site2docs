@@ -52,6 +52,8 @@ class SiteGraph:
             return []
         adjacency = self._build_adjacency(pages)
         groups = self._cluster_with_networkx(adjacency)
+        if groups:
+            groups = self._refine_large_network_groups(groups, pages)
         if not groups:
             pattern_groups, remaining = self._cluster_by_url_pattern(pages)
             if pattern_groups:
@@ -86,6 +88,30 @@ class SiteGraph:
                     adjacency[target].add(page.page_id)
         return adjacency
 
+    def _refine_large_network_groups(self, groups: list[set[str]], pages: Sequence[ExtractedPage]) -> list[set[str]]:
+        threshold = max(self._config.max_network_cluster_size, self._config.min_cluster_size)
+        if threshold <= 0:
+            return groups
+        lookup = {page.page_id: page for page in pages}
+        refined: list[set[str]] = []
+        for group in groups:
+            if len(group) <= threshold:
+                refined.append(group)
+                continue
+            subset_pages = [lookup[pid] for pid in group if pid in lookup]
+            if not subset_pages:
+                continue
+            pattern_groups, remaining = self._cluster_by_url_pattern(subset_pages)
+            if pattern_groups:
+                refined.extend(pattern_groups)
+                if remaining:
+                    remaining_pages = [lookup[pid] for pid in remaining if pid in lookup]
+                    if remaining_pages:
+                        refined.extend(self._cluster_by_directory(remaining_pages))
+                continue
+            refined.extend({pid} for pid in group)
+        return refined
+
     def _cluster_with_networkx(self, adjacency: dict[str, set[str]]) -> list[set[str]]:
         if not adjacency or nx is None or greedy_modularity_communities is None:
             return []
@@ -103,9 +129,21 @@ class SiteGraph:
         return groups
 
     def _cluster_by_url_pattern(self, pages: Sequence[ExtractedPage]) -> tuple[list[set[str]], set[str]]:
+        max_depth = max(1, self._config.url_pattern_depth)
+        best_groups: list[set[str]] = []
+        best_remaining: set[str] = set()
+        for depth in range(max_depth, 0, -1):
+            groups, remaining = self._cluster_by_url_pattern_with_depth(pages, depth)
+            if groups and not self._all_singleton_groups(groups):
+                return groups, remaining
+            if groups and not best_groups:
+                best_groups, best_remaining = groups, remaining
+        return best_groups, best_remaining
+
+    def _cluster_by_url_pattern_with_depth(self, pages: Sequence[ExtractedPage], depth: int) -> tuple[list[set[str]], set[str]]:
         buckets: dict[str, set[str]] = defaultdict(set)
         for page in pages:
-            pattern = self._extract_url_pattern(page.url)
+            pattern = self._extract_url_pattern(page.url, depth)
             if not pattern:
                 continue
             buckets[pattern].add(page.page_id)
@@ -116,10 +154,14 @@ class SiteGraph:
         for pattern in sorted(buckets):
             members = buckets[pattern]
             if len(members) >= self._config.min_cluster_size:
-                groups.append(set(members))
-                assigned.update(members)
+                group = set(members)
+                groups.append(group)
+                assigned.update(group)
         remaining = {page.page_id for page in pages if page.page_id not in assigned}
         return groups, remaining
+
+    def _all_singleton_groups(self, groups: Sequence[set[str]]) -> bool:
+        return all(len(group) == 1 for group in groups)
 
     def _cluster_by_directory(self, pages: Sequence[ExtractedPage]) -> list[set[str]]:
         buckets: dict[Path, set[str]] = defaultdict(set)
@@ -127,7 +169,7 @@ class SiteGraph:
             buckets[page.file_path.parent].add(page.page_id)
         return list(buckets.values())
 
-    def _extract_url_pattern(self, url: str) -> str:
+    def _extract_url_pattern(self, url: str, depth: int) -> str:
         if not url:
             return ""
         parsed = urlparse(url)
@@ -136,10 +178,10 @@ class SiteGraph:
         segments = [segment for segment in parsed.path.split("/") if segment]
         normalized = [self._normalize_url_segment(segment) for segment in segments]
         normalized = [segment for segment in normalized if segment]
-        if not normalized:
+        if not normalized or depth <= 0:
             return ""
-        depth = max(1, min(self._config.url_pattern_depth, len(normalized)))
-        pattern_segments = normalized[:depth]
+        actual_depth = max(1, min(depth, len(normalized)))
+        pattern_segments = normalized[:actual_depth]
         pattern = "/".join(pattern_segments)
         base = parsed.netloc or ""
         return f"{base}/{pattern}" if base else pattern

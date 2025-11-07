@@ -8,7 +8,7 @@ from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Iterable
-from urllib.parse import urljoin, urldefrag
+from urllib.parse import urljoin, urldefrag, urlparse
 
 from .config import ExtractionConfig
 
@@ -78,14 +78,14 @@ class ContentExtractor:
         self._config = config
 
     def extract(self, page_id: str, html: str, *, url: str, file_path: Path, captured_at: datetime) -> ExtractedPage:
-        normalized_url = self._normalize_base_url(url, file_path)
+        canonical_url = self._infer_canonical_url(html, url, file_path)
         title, content_html = self._extract_readable(html)
         headings = self._extract_headings(content_html)
-        links = self._extract_links(html, normalized_url)
+        links = self._extract_links(html, canonical_url)
         markdown = self._convert_to_markdown(content_html)
         return ExtractedPage(
             page_id=page_id,
-            url=normalized_url,
+            url=canonical_url,
             file_path=file_path,
             title=title,
             markdown=markdown,
@@ -182,10 +182,91 @@ class ContentExtractor:
         text = soup.get_text(" ", strip=True)
         return len(text)
 
-    def _normalize_base_url(self, url: str, file_path: Path) -> str:
-        base = url or file_path.as_uri()
-        normalized, _ = urldefrag(base)
-        return normalized or file_path.as_uri()
+    def _infer_canonical_url(self, html: str, url: str, file_path: Path) -> str:
+        sanitized = self._sanitize_url(url)
+        if sanitized.startswith(("http://", "https://")):
+            return sanitized
+        host = self._extract_host_from_path(file_path)
+        html_url = self._canonical_url_from_html(html, host)
+        if html_url:
+            return html_url
+        path_url = self._build_url_from_archive_path(file_path, host)
+        if path_url:
+            return path_url
+        return sanitized or file_path.as_uri()
+
+    def _sanitize_url(self, url: str | None) -> str:
+        if not url:
+            return ""
+        normalized, _ = urldefrag(url)
+        return normalized
+
+    def _extract_host_from_path(self, file_path: Path) -> str:
+        try:
+            parts = file_path.parts
+        except Exception:
+            return ""
+        host = ""
+        try:
+            start = parts.index("site_backup")
+        except ValueError:
+            start = -1
+        search_range = parts[start + 1 :] if start >= 0 else parts
+        for segment in search_range:
+            lowered = segment.lower()
+            if "." in segment and not lowered.endswith((".html", ".htm", ".php", ".asp", ".aspx", ".jsp")):
+                host = segment
+        return host
+
+    def _canonical_url_from_html(self, html: str, host: str) -> str:
+        if BeautifulSoup is None:
+            return ""
+        soup = BeautifulSoup(html, "lxml")
+        href = self._extract_canonical_link(soup) or self._extract_meta_url(soup)
+        href = href.strip() if href else ""
+        if not href:
+            return ""
+        sanitized = self._sanitize_url(href)
+        if sanitized.startswith(("http://", "https://")):
+            return sanitized
+        if not host:
+            return sanitized
+        if sanitized.startswith("/"):
+            return f"https://{host}{sanitized}"
+        return f"https://{host}/{sanitized.lstrip('/')}"
+
+    def _extract_canonical_link(self, soup: "BeautifulSoup") -> str:
+        for link in soup.find_all("link"):
+            rel = link.get("rel")
+            rels = [rel] if isinstance(rel, str) else rel or []
+            rels_lower = [str(value).strip().lower() for value in rels]
+            if "canonical" in rels_lower:
+                href = link.get("href")
+                if href:
+                    return href
+        return ""
+
+    def _extract_meta_url(self, soup: "BeautifulSoup") -> str:
+        meta = soup.find("meta", attrs={"property": "og:url"}) or soup.find("meta", attrs={"name": "twitter:url"})
+        if meta and meta.get("content"):
+            return str(meta.get("content"))
+        return ""
+
+    def _build_url_from_archive_path(self, file_path: Path, host: str) -> str:
+        if not host:
+            return ""
+        parts = file_path.parts
+        host_index = -1
+        for idx, segment in enumerate(parts):
+            if segment == host:
+                host_index = idx
+        if host_index == -1:
+            return ""
+        path_parts = parts[host_index + 1 :]
+        path = "/".join(path_parts)
+        if not path:
+            return f"https://{host}/"
+        return self._sanitize_url(f"https://{host}/{path.lstrip('/')}")
 
     def _resolve_link(self, href: str, base_url: str) -> str:
         absolute = urljoin(base_url, href)
