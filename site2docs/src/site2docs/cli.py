@@ -25,6 +25,13 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--out", dest="output_dir", type=Path, required=True, help="生成成果物を書き出すディレクトリ")
     parser.add_argument("--expand-texts", dest="expand_texts", type=str, default="", help="自動展開したいボタン文言をカンマ区切りで指定")
     parser.add_argument("--verbose", dest="verbose", action="store_true", help="進捗ログを標準出力へ表示")
+    parser.add_argument(
+        "--render-concurrency",
+        dest="render_concurrency",
+        type=int,
+        default=None,
+        help="Playwright レンダリング時の同時ブラウザページ数 (省略時は CPU/タスク数から自動推定)",
+    )
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -32,7 +39,12 @@ def main(argv: Iterable[str] | None = None) -> None:
     args = parse_args(argv)
     _validate_args(args)
     _configure_logging(args.verbose)
-    config = BuildConfig.from_args(args.input_dir, args.output_dir, expand_texts=_parse_expand_texts(args.expand_texts))
+    config = BuildConfig.from_args(
+        args.input_dir,
+        args.output_dir,
+        expand_texts=_parse_expand_texts(args.expand_texts),
+        max_concurrency=args.render_concurrency,
+    )
     result = build_documents(config)
     summary = {
         "pages": len(result.pages),
@@ -51,6 +63,9 @@ def _validate_args(args: argparse.Namespace) -> None:
 
     if args.output_dir.exists() and not args.output_dir.is_dir():
         errors.append(f"[エラー] 出力パスがディレクトリではありません: {args.output_dir}")
+
+    if args.render_concurrency is not None and args.render_concurrency < 1:
+        errors.append("[エラー] --render-concurrency には 1 以上の整数を指定してください。")
 
     if errors:
         for message in errors:

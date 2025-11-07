@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, Optional, Sequence
+from typing import Any, Iterable, Optional, Sequence
 
 
 def default_timestamp() -> datetime:
@@ -20,10 +20,35 @@ class RenderConfig:
 
     scroll_pause: float = 0.2
     max_scroll_iterations: int = 20
-    expand_texts: Sequence[str] = ("more", "show more", "もっと見る", "詳細", "展開")
+    expand_texts: Sequence[str] = (
+        "more",
+        "show more",
+        "show all",
+        "read more",
+        "load more",
+        "view more",
+        "see more",
+        "expand",
+        "open all",
+        "ver mas",
+        "ver más",
+        "mostrar mas",
+        "weiterlesen",
+        "もっと見る",
+        "さらに表示",
+        "詳細",
+        "詳細を見る",
+        "すべて表示",
+        "全て表示",
+        "続きを読む",
+        "続きを見る",
+        "展開",
+        "折りたたみ解除",
+    )
     wait_until: str = "networkidle"
     render_timeout: float = 30.0
     auto_expand_candidates: bool = True
+    max_concurrency: int | None = None
 
 
 @dataclass(slots=True)
@@ -75,10 +100,17 @@ class BuildConfig:
         input_dir: Path,
         output_dir: Path,
         expand_texts: Optional[Iterable[str]] = None,
+        max_concurrency: Optional[int] = None,
     ) -> "BuildConfig":
-        render_config = RenderConfig(
-            expand_texts=tuple(t.strip() for t in (expand_texts or ())) or RenderConfig().expand_texts,
-        )
+        defaults = RenderConfig()
+        render_kwargs: dict[str, Any] = {}
+        normalized_texts = tuple(text.strip() for text in (expand_texts or ()) if text and text.strip())
+        if normalized_texts:
+            merged = tuple(dict.fromkeys((*defaults.expand_texts, *normalized_texts)))
+            render_kwargs["expand_texts"] = merged
+        if max_concurrency is not None:
+            render_kwargs["max_concurrency"] = max(1, max_concurrency)
+        render_config = RenderConfig(**render_kwargs)
         return cls(
             input_dir=input_dir,
             output=OutputConfig(output_dir),

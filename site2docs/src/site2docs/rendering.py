@@ -4,17 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable
+import os
 
 from .config import RenderConfig
 
 try:  # pragma: no cover - optional dependency
-    from playwright.async_api import async_playwright, Browser
+    from playwright.async_api import async_playwright, BrowserContext, Page
 except Exception:  # pragma: no cover - executed when dependency missing
     async_playwright = None  # type: ignore[assignment]
-    Browser = object  # type: ignore[misc,assignment]
+    BrowserContext = object  # type: ignore[misc,assignment]
+    Page = object  # type: ignore[misc,assignment]
 
 
 logger = logging.getLogger(__name__)
@@ -119,6 +122,9 @@ class PageRenderer:
         """ローカル HTML ファイルを順番にレンダリングします。"""
 
         path_list = list(paths)
+        if not path_list:
+            return []
+
         pages: list[RenderedPage] = []
         if async_playwright is None:
             total = len(path_list)
@@ -132,20 +138,62 @@ class PageRenderer:
 
         async with async_playwright() as playwright:  # type: ignore[misc]
             browser = await playwright.chromium.launch()
-            try:
-                total = len(path_list)
-                for index, path in enumerate(path_list, start=1):
-                    pages.append(await self._render_single(browser, path))
-                    if progress is not None:
-                        progress(index, total, path)
-                    else:
-                        logger.info("レンダリング中 (%d/%d): %s", index, total, path.name)
-            finally:
-                await browser.close()
-        return pages
+            total = len(path_list)
+            results: list[RenderedPage | None] = [None] * total
+            worker_count = self._determine_worker_count(total)
+            contexts: list[BrowserContext] = [await browser.new_context() for _ in range(worker_count)]
+            context_pool: asyncio.Queue[BrowserContext] = asyncio.Queue()
+            for context in contexts:
+                context_pool.put_nowait(context)
+            progress_lock = asyncio.Lock()
+            completed = 0
 
-    async def _render_single(self, browser: Browser, path: Path) -> RenderedPage:
-        page = await browser.new_page()
+            async def notify_progress(path: Path) -> None:
+                nonlocal completed
+                async with progress_lock:
+                    completed += 1
+                    current = completed
+                if progress is not None:
+                    progress(current, total, path)
+                else:
+                    logger.info("レンダリング中 (%d/%d): %s", current, total, path.name)
+
+            async def process(index: int, path: Path) -> None:
+                context = await context_pool.get()
+                try:
+                    rendered = await self._render_single(context, path)
+                finally:
+                    context_pool.put_nowait(context)
+                results[index] = rendered
+                await notify_progress(path)
+
+            try:
+                await asyncio.gather(*(process(index, path) for index, path in enumerate(path_list)))
+            finally:
+                for context in contexts:
+                    try:
+                        await context.close()
+                    except Exception:
+                        logger.debug("コンテキストクローズ中に例外が発生しました。", exc_info=True)
+                await browser.close()
+
+        return [page for page in results if page is not None]
+
+    def _determine_worker_count(self, total: int) -> int:
+        requested = self._config.max_concurrency
+        if requested is not None and requested > 0:
+            return max(1, min(total, requested))
+        cpu_total = os.cpu_count() or 2
+        if cpu_total <= 1:
+            baseline = 1
+        elif cpu_total <= 4:
+            baseline = cpu_total - 1
+        else:
+            baseline = min(8, cpu_total // 2 + 2)
+        return max(1, min(total, baseline))
+
+    async def _render_single(self, context: BrowserContext, path: Path) -> RenderedPage:
+        page = await context.new_page()
         try:
             await page.goto(path.as_uri(), wait_until=self._config.wait_until, timeout=self._config.render_timeout * 1000)
             await self._auto_expand(page)
@@ -154,7 +202,7 @@ class PageRenderer:
         finally:
             await page.close()
 
-    async def _auto_expand(self, page: "Browser") -> None:  # type: ignore[override]
+    async def _auto_expand(self, page: Page) -> None:
         """スクロールやボタン操作で動的コンテンツを展開します。"""
 
         # Scroll behaviour
