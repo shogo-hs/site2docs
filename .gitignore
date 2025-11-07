@@ -1,7 +1,40 @@
+## Python artifacts
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyd
+*.pyo
+*.so
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+pip-wheel-metadata/
+
+## Virtual environments & tooling caches
 .venv/
+venv/
+.env
+.env.*
+.cache/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.nox/
+.tox/
+.coverage
+coverage.*
+htmlcov/
+
+## Editor/OS noise
 .DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+## Project outputs
 site_backup/
 output/
-.pytest_cache/
+logs/
+*.log
+*.tmp
