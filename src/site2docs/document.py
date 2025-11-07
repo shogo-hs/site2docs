@@ -18,11 +18,12 @@ def build_markdown(cluster: Cluster, pages: Sequence[ExtractedPage], created_at:
     page_lookup = {page.page_id: page for page in pages}
     ordered_pages = [page_lookup[pid] for pid in cluster.page_ids]
     source_urls = [page.url for page in ordered_pages if page.url]
+    cluster_identifier = cluster.slug or cluster.cluster_id
     frontmatter_lines = [
         "---",
-        f"doc_id: doc_{cluster.slug}",
+        f"doc_id: doc_{cluster_identifier}",
         f"cluster_label: {cluster.label}",
-        f"cluster_slug: {cluster.slug}",
+        f"cluster_slug: {cluster_identifier}",
         "source_urls:",
     ]
     frontmatter_lines.extend([f"  - {url}" for url in source_urls])

@@ -93,8 +93,10 @@ class Site2DocsBuilder:
         return BuildResult(pages=pages, clusters=clusters)
 
     def _discover_html_files(self, directory: Path) -> Iterable[Path]:
-        for path in directory.rglob("*.html"):
-            if path.is_file():
+        for path in directory.rglob("*"):
+            if not path.is_file():
+                continue
+            if path.suffix.lower() in {".html", ".htm"}:
                 yield path
 
     def _write_outputs(self, pages: list[ExtractedPage], clusters) -> dict[str, Any]:

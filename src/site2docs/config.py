@@ -8,6 +8,22 @@ from pathlib import Path
 from typing import Any, Iterable, Optional, Sequence
 
 
+def _merge_expand_texts(
+    defaults: Sequence[str], extras: Sequence[str]
+) -> tuple[str, ...]:
+    """既定の文言と追加指定を大文字小文字を無視して結合します。"""
+
+    seen: set[str] = set()
+    merged: list[str] = []
+    for text in (*defaults, *extras):
+        key = text.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(text)
+    return tuple(merged)
+
+
 def default_timestamp() -> datetime:
     """メタデータ用に現在時刻 (UTC) を返します。"""
 
@@ -119,9 +135,11 @@ class BuildConfig:
     ) -> "BuildConfig":
         defaults = RenderConfig()
         render_kwargs: dict[str, Any] = {}
-        normalized_texts = tuple(text.strip() for text in (expand_texts or ()) if text and text.strip())
+        normalized_texts = tuple(
+            text.strip() for text in (expand_texts or ()) if text and text.strip()
+        )
         if normalized_texts:
-            merged = tuple(dict.fromkeys((*defaults.expand_texts, *normalized_texts)))
+            merged = _merge_expand_texts(defaults.expand_texts, normalized_texts)
             render_kwargs["expand_texts"] = merged
         if max_concurrency is not None:
             render_kwargs["max_concurrency"] = max(1, max_concurrency)

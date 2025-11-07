@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from site2docs import rendering
-from site2docs.builder import build_documents
+from site2docs.builder import Site2DocsBuilder, build_documents
 from site2docs.config import BuildConfig, OutputConfig
 
 
@@ -68,3 +68,27 @@ def test_build_documents_writes_manifest_and_logs(tmp_path: Path, monkeypatch) -
     assert "## 概要" in markdown
     assert "見出し" in markdown
     assert "ファイルパス" in markdown
+
+
+def test_discover_html_files_supports_multiple_extensions(tmp_path: Path) -> None:
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    html_upper = input_dir / "index.HTML"
+    html_upper.write_text("<html></html>", encoding="utf-8")
+    html_short = input_dir / "detail.htm"
+    html_short.write_text("<html></html>", encoding="utf-8")
+    ignored = input_dir / "readme.txt"
+    ignored.write_text("text", encoding="utf-8")
+
+    builder = Site2DocsBuilder(
+        BuildConfig(
+            input_dir=input_dir,
+            output=OutputConfig(tmp_path / "output"),
+        )
+    )
+
+    discovered = list(builder._discover_html_files(input_dir))
+
+    assert html_upper in discovered
+    assert html_short in discovered
+    assert ignored not in discovered
