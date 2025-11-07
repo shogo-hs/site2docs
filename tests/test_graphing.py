@@ -171,3 +171,31 @@ def test_singletons_are_merged_by_host(tmp_path: Path) -> None:
     clusters = graph.cluster(pages)
 
     assert any(len(cluster.page_ids) == 3 for cluster in clusters)
+
+
+def test_label_generation_handles_japanese_text(tmp_path: Path) -> None:
+    base_dir = tmp_path / "site_backup" / "jp.example.com" / "docs"
+    base_dir.mkdir(parents=True)
+    pages: list[ExtractedPage] = []
+    for idx in range(2):
+        file_path = base_dir / f"page{idx}.html"
+        file_path.write_text("<html></html>", encoding="utf-8")
+        pages.append(
+            ExtractedPage(
+                page_id=f"pg_jp_{idx}",
+                url=f"https://jp.example.com/docs/{idx}",
+                file_path=file_path,
+                title="",
+                markdown="製品概要 セキュリティ 解説 製品概要 詳細",
+                headings=[],
+                links=[],
+                captured_at=datetime.now(timezone.utc),
+            )
+        )
+
+    graph = SiteGraph(GraphConfig(min_cluster_size=2))
+    clusters = graph.cluster(pages)
+
+    assert clusters, "クラスタが生成されていません"
+    target = next(cluster for cluster in clusters if set(cluster.page_ids) == {"pg_jp_0", "pg_jp_1"})
+    assert "製品概要" in target.label or "セキュリティ" in target.label

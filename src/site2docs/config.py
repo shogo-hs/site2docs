@@ -77,6 +77,7 @@ class GraphConfig:
 
     min_cluster_size: int = 2
     label_tfidf_terms: int = 5
+    label_token_pattern: str | None = r"(?u)[\w一-龥ぁ-んァ-ヶー]+"
     url_pattern_depth: int = 3
     max_network_cluster_size: int = 12
     directory_cluster_depth: int = 2

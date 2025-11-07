@@ -6,7 +6,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 import re
-from typing import Sequence
+from typing import Any, Sequence
 from urllib.parse import urlparse
 
 from .config import GraphConfig
@@ -308,7 +308,13 @@ class SiteGraph:
             headline = documents[0].splitlines()[0] if documents[0] else ""
             return headline[:50]
         try:
-            vectorizer = TfidfVectorizer(max_features=self._config.label_tfidf_terms, stop_words="english")
+            vectorizer_kwargs: dict[str, Any] = {
+                "max_features": self._config.label_tfidf_terms,
+                "stop_words": "english",
+            }
+            if self._config.label_token_pattern:
+                vectorizer_kwargs["token_pattern"] = self._config.label_token_pattern
+            vectorizer = TfidfVectorizer(**vectorizer_kwargs)
             matrix = vectorizer.fit_transform(documents)
             summed = matrix.sum(axis=0)
             scores = zip(vectorizer.get_feature_names_out(), summed.A1)

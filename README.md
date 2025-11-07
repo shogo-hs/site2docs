@@ -87,14 +87,13 @@ uv run site2docs \
 ### Markdown の例 (抜粋)
 ```markdown
 ---
-doc_id: doc_001
+doc_id: doc_service-overview
 cluster_label: サービス紹介
 cluster_slug: service-overview
 source_urls:
   - https://example.com/service
 created_at: 2025-11-07T00:00:00Z
-pages:
-  - pg_001
+pages: [pg_001]
 ---
 ## サマリー
 ...
@@ -112,6 +111,7 @@ pages:
 ## 高度な設定・運用 Tips
 - **独自ボタンの展開**: `--expand-texts "表示する,Show details"` のように追加すると既定辞書へ自動マージされます。
 - **並列度の調整**: I/O が遅いファイルシステムでは `--render-concurrency 4` など控えめに設定すると安定します。
+- **ラベル抽出のチューニング**: `GraphConfig.label_token_pattern` で TF-IDF のトークン正規表現を上書きでき、日本語や多言語サイトでも意図どおりのクラスタラベルを得られます。
 - **フォールバック戦略**: 品質を最優先する場合は `--allow-render-fallback` を付けずに失敗ページを洗い出し、HTML 側を修正して再実行してください。
 - **ログローテーション**: 大規模サイトでは `logs/build_summary.json` が数 MB になる場合があります。完了後にアーカイブまたは削除してディスクを管理してください。
 
