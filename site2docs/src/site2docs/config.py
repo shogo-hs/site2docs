@@ -59,6 +59,7 @@ class ExtractionConfig:
     trafilatura: bool = True
     preserve_headings: bool = True
     fallback_plain_text: bool = True
+    min_content_characters: int = 400
 
 
 @dataclass(slots=True)

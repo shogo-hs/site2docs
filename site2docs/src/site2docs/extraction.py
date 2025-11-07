@@ -101,13 +101,15 @@ class ContentExtractor:
             try:
                 doc = Document(html)
                 title = unescape(doc.short_title())
-                return title, doc.summary(html_partial=True)
+                summary_html = doc.summary(html_partial=True)
+                if self._has_enough_content(summary_html):
+                    return title, summary_html
             except Exception:
                 pass
         if self._config.trafilatura and trafilatura is not None:
             try:
                 extracted = trafilatura.extract(html, include_comments=False, include_tables=True, favor_recall=True)
-                if extracted:
+                if extracted and self._has_enough_content(extracted):
                     return "", extracted
             except Exception:
                 pass
@@ -164,6 +166,21 @@ class ContentExtractor:
             return content_html
         soup = BeautifulSoup(content_html, "lxml")
         return soup.get_text("\n")
+
+    def _has_enough_content(self, content: str) -> bool:
+        threshold = self._config.min_content_characters
+        if threshold <= 0:
+            return True
+        return self._count_plain_text(content) >= threshold
+
+    def _count_plain_text(self, content: str) -> int:
+        if not content:
+            return 0
+        if BeautifulSoup is None:
+            return len(content.strip())
+        soup = BeautifulSoup(content, "lxml")
+        text = soup.get_text(" ", strip=True)
+        return len(text)
 
     def _normalize_base_url(self, url: str, file_path: Path) -> str:
         base = url or file_path.as_uri()
