@@ -1,7 +1,7 @@
 __pycache__/
 *.pyc
-site2docs/.venv/
+.venv/
 .DS_Store
 site_backup/
 output/
-site2docs/output/
+.pytest_cache/

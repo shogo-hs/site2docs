@@ -22,18 +22,20 @@
 ## プロジェクト概要
 - Python で実装された静的ナレッジベース生成ツールです。
 - 依存関係管理には [`uv`](https://github.com/astral-sh/uv) を必ず使用してください。
-- 対応 Python バージョンは `>=3.11` です（`site2docs/pyproject.toml` を参照）。
-- 実装コードは `site2docs/src/site2docs` 配下にまとまっています。CLI エントリポイントは `site2docs/cli.py` です。
+- 対応 Python バージョンは `>=3.11` です（`pyproject.toml` を参照）。
+- 実装コードは `src/site2docs` 配下にまとまっています。CLI エントリポイントは `src/site2docs/cli.py` です。
 - 主要依存ライブラリ: Playwright、Readability、Trafilatura、NetworkX、scikit-learn など。用途に応じて追加のブラウザインストールが必要になる場合があります。
 
 ### ディレクトリの目安
-- `site2docs/src/site2docs/` : アプリケーション本体（構成・レンダリング・CLI 等）。
-- `site2docs/pyproject.toml` : パッケージ設定と依存関係。
+- `src/site2docs/` : アプリケーション本体（構成・レンダリング・CLI 等）。
+- `pyproject.toml` : パッケージ設定と依存関係。
+- `site_backup/` : サンプルのアーカイブ入力（Git には含めません）。
+- `output/` : 生成されたドキュメントの出力先（Git には含めません）。
 - `codex_spec_static_doc_generation.md` : 背景仕様（仕様確認用）。
 
 ## 環境セットアップと利用コマンド
-1. 依存性同期: `uv sync`
-2. 任意のコマンド実行: `uv run <python or cli command>`
+1. 依存性同期: `uv sync`（リポジトリ直下で実行）
+2. 任意のコマンド実行: `uv run <python or cli command>`（同上）
    - 例: `uv run site2docs --help`
 3. Playwright を使用する機能を触る場合は、必要に応じて `uv run playwright install` を実行してください。
 
