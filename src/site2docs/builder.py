@@ -134,6 +134,7 @@ class Site2DocsBuilder:
     def _prepare_logging_resources(self) -> None:
         self.config.output.root.mkdir(parents=True, exist_ok=True)
         self.config.output.logs_dir.mkdir(parents=True, exist_ok=True)
+        self._summary_path.write_text("", encoding="utf-8")
 
     def _report_render_progress(self, current: int, total: int, path: Path) -> None:
         self._logger.info("レンダリング中 (%d/%d): %s", current, total, path.name)
@@ -149,7 +150,9 @@ class Site2DocsBuilder:
         payload.update(extra)
         payload["stage"] = stage
         self._summary_path.parent.mkdir(parents=True, exist_ok=True)
-        self._summary_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        with self._summary_path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(payload, ensure_ascii=False))
+            stream.write("\n")
 
 
 def build_documents(config: BuildConfig) -> BuildResult:

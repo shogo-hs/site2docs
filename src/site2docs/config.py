@@ -65,16 +65,22 @@ class ExtractionConfig:
     preserve_headings: bool = True
     fallback_plain_text: bool = True
     min_content_characters: int = 400
+    semantic_body_fallback: bool = True
+    semantic_min_length: int = 600
+    semantic_length_ratio: float = 1.25
+    semantic_min_delta: int = 100
 
 
 @dataclass(slots=True)
 class GraphConfig:
     """サイトグラフ構築とクラスタリングの設定。"""
 
-    min_cluster_size: int = 1
+    min_cluster_size: int = 2
     label_tfidf_terms: int = 5
     url_pattern_depth: int = 3
     max_network_cluster_size: int = 12
+    directory_cluster_depth: int = 2
+    allow_singleton_clusters: bool = False
 
 
 @dataclass(slots=True)

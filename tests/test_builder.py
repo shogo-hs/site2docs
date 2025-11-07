@@ -56,11 +56,15 @@ def test_build_documents_writes_manifest_and_logs(tmp_path: Path, monkeypatch) -
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["pages"][0]["created_at"].startswith("2024-01-02T03:04:05")
 
-    summary = json.loads(log_path.read_text(encoding="utf-8"))
-    assert summary["documents"]
-    assert summary["pages"] == 1
-    assert summary["clusters"] == 1
+    summary_lines = [line for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert summary_lines, "ログにイベントが記録されていません"
+    last_event = json.loads(summary_lines[-1])
+    assert last_event["documents"]
+    assert last_event["pages"] == 1
+    assert last_event["clusters"] == 1
+    assert len(summary_lines) >= 2, "少なくとも2件以上のイベントが記録される想定です"
 
     markdown = doc_path.read_text(encoding="utf-8")
     assert "## 概要" in markdown
     assert "見出し" in markdown
+    assert "ファイルパス" in markdown

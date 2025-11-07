@@ -61,18 +61,30 @@ class SiteGraph:
                 if remaining:
                     remaining_pages = [page for page in pages if page.page_id in remaining]
                     if remaining_pages:
-                        groups.extend(self._cluster_by_directory(remaining_pages))
+                        groups.extend(self._cluster_by_directory_groups(remaining_pages))
             else:
-                groups = self._cluster_by_directory(pages)
+                groups = self._cluster_by_directory_groups(pages)
+        groups = self._merge_small_groups(groups, pages)
+        if not groups and pages:
+            groups = [set(page.page_id for page in pages)]
         clusters: list[Cluster] = []
         used_slugs: set[str] = set()
+        page_lookup = {page.page_id: page for page in pages}
         for idx, group in enumerate(groups, start=1):
             page_ids = sorted(group)
-            label = self._infer_label([self._page_by_id(pid, pages).markdown for pid in page_ids])
+            ordered_pages = [page_lookup[pid] for pid in page_ids if pid in page_lookup]
+            label = self._infer_label(ordered_pages)
             raw_slug = slugify(label) if label else ""
             slug = self._ensure_unique_slug(raw_slug, used_slugs, idx)
             cluster_id = f"cl_{slug}"
-            clusters.append(Cluster(cluster_id=cluster_id, label=label or f"Cluster {idx}", slug=slug, page_ids=page_ids))
+            clusters.append(
+                Cluster(
+                    cluster_id=cluster_id,
+                    label=label or f"Cluster {idx}",
+                    slug=slug,
+                    page_ids=page_ids,
+                )
+            )
         return clusters
 
     # Helpers ----------------------------------------------------------
@@ -107,7 +119,7 @@ class SiteGraph:
                 if remaining:
                     remaining_pages = [lookup[pid] for pid in remaining if pid in lookup]
                     if remaining_pages:
-                        refined.extend(self._cluster_by_directory(remaining_pages))
+                        refined.extend(self._cluster_by_directory_groups(remaining_pages))
                 continue
             refined.extend({pid} for pid in group)
         return refined
@@ -163,11 +175,84 @@ class SiteGraph:
     def _all_singleton_groups(self, groups: Sequence[set[str]]) -> bool:
         return all(len(group) == 1 for group in groups)
 
-    def _cluster_by_directory(self, pages: Sequence[ExtractedPage]) -> list[set[str]]:
-        buckets: dict[Path, set[str]] = defaultdict(set)
+    def _cluster_by_directory_groups(self, pages: Sequence[ExtractedPage]) -> list[set[str]]:
+        depth = max(1, self._config.directory_cluster_depth)
+        buckets: dict[str, set[str]] = defaultdict(set)
         for page in pages:
-            buckets[page.file_path.parent].add(page.page_id)
-        return list(buckets.values())
+            key = self._directory_key(page.file_path, depth)
+            buckets[key].add(page.page_id)
+        groups: list[set[str]] = []
+        threshold = max(2, self._config.min_cluster_size)
+        for key in sorted(buckets):
+            members = buckets[key]
+            if len(members) >= threshold:
+                group = set(members)
+                groups.append(group)
+        return groups
+
+    def _merge_small_groups(self, groups: list[set[str]], pages: Sequence[ExtractedPage]) -> list[set[str]]:
+        threshold = max(2, self._config.min_cluster_size)
+        if self._config.allow_singleton_clusters or threshold <= 1:
+            return groups
+        lookup = {page.page_id: page for page in pages}
+        large = [group for group in groups if len(group) >= threshold]
+        small_ids: list[str] = [pid for group in groups if len(group) < threshold for pid in group]
+        if not small_ids:
+            return large
+        buckets: dict[str, list[str]] = defaultdict(list)
+        for pid in small_ids:
+            page = lookup.get(pid)
+            if page is None:
+                continue
+            key = self._directory_key(page.file_path, depth=0)
+            buckets[key].append(pid)
+        merged: list[set[str]] = []
+        leftovers: list[str] = []
+        for key in sorted(buckets):
+            members = buckets[key]
+            if len(members) >= threshold:
+                merged.append(set(members))
+            else:
+                leftovers.extend(members)
+        if leftovers:
+            merged.append(set(leftovers))
+        return large + merged
+
+    def _directory_key(self, file_path: Path, depth: int) -> str:
+        parts = file_path.parts
+        depth = max(0, depth)
+        host = ""
+        host_index = -1
+        try:
+            site_idx = parts.index("site_backup")
+            candidate = site_idx + 1
+            if candidate < len(parts):
+                host = parts[candidate]
+                host_index = candidate
+        except ValueError:
+            pass
+        if host_index == -1:
+            for idx, segment in enumerate(parts):
+                lowered = segment.lower()
+                if "." in segment and not lowered.endswith((".html", ".htm")):
+                    host = segment
+                    host_index = idx
+                    break
+        rel_parts = parts[host_index + 1 :] if host_index >= 0 else parts
+        segments: list[str] = []
+        for segment in rel_parts:
+            lowered = segment.lower()
+            if lowered.endswith((".html", ".htm")):
+                break
+            segments.append(segment)
+            if depth and len(segments) >= depth:
+                break
+        if depth and not segments and rel_parts:
+            segments.append(rel_parts[0])
+        key_segments = [host] if depth == 0 else ([host] + segments if host else segments)
+        if depth == 0 and not host:
+            key_segments = ["root"]
+        return "/".join(key_segments) if key_segments else str(file_path.parent)
 
     def _extract_url_pattern(self, url: str, depth: int) -> str:
         if not url:
@@ -203,11 +288,25 @@ class SiteGraph:
         cleaned = cleaned.strip("-")
         return cleaned
 
-    def _infer_label(self, documents: Sequence[str]) -> str:
+    def _infer_label(self, pages: Sequence[ExtractedPage]) -> str:
+        if not pages:
+            return ""
+        text_label = self._infer_label_from_text(pages)
+        if text_label:
+            return text_label
+        url_label = self._infer_label_from_url_prefix(pages)
+        if url_label:
+            return url_label
+        first = pages[0].markdown.splitlines()[0] if pages[0].markdown else ""
+        return first[:50]
+
+    def _infer_label_from_text(self, pages: Sequence[ExtractedPage]) -> str:
+        documents = [page.markdown for page in pages if page.markdown.strip()]
         if not documents:
             return ""
         if TfidfVectorizer is None:
-            return documents[0].splitlines()[0][:50] if documents[0] else ""
+            headline = documents[0].splitlines()[0] if documents[0] else ""
+            return headline[:50]
         try:
             vectorizer = TfidfVectorizer(max_features=self._config.label_tfidf_terms, stop_words="english")
             matrix = vectorizer.fit_transform(documents)
@@ -216,13 +315,35 @@ class SiteGraph:
             top_terms = [term for term, score in sorted(scores, key=lambda x: x[1], reverse=True) if term]
             return " ".join(top_terms[:3])
         except Exception:
-            return documents[0].splitlines()[0][:50] if documents[0] else ""
+            headline = documents[0].splitlines()[0] if documents[0] else ""
+            return headline[:50]
 
-    def _page_by_id(self, page_id: str, pages: Sequence[ExtractedPage]) -> ExtractedPage:
-        for page in pages:
-            if page.page_id == page_id:
-                return page
-        raise KeyError(page_id)
+    def _infer_label_from_url_prefix(self, pages: Sequence[ExtractedPage]) -> str:
+        http_pages = [page for page in pages if page.url.startswith(("http://", "https://"))]
+        if not http_pages:
+            return ""
+        parsed_pages = [urlparse(page.url) for page in http_pages]
+        hosts = [parsed.netloc for parsed in parsed_pages if parsed.netloc]
+        host = hosts[0] if hosts and all(item == hosts[0] for item in hosts) else ""
+        path_segments: list[list[str]] = []
+        for parsed in parsed_pages:
+            segments = [segment for segment in parsed.path.split("/") if segment]
+            path_segments.append(segments)
+        common: list[str] = []
+        min_length = min((len(segments) for segments in path_segments if segments), default=0)
+        for index in range(min_length):
+            candidate = path_segments[0][index]
+            if all(len(segments) > index and segments[index] == candidate for segments in path_segments):
+                common.append(candidate)
+            else:
+                break
+        if not (host or common):
+            return ""
+        if host and common:
+            return f"{host}/{'/'.join(common)}"
+        if host:
+            return host
+        return "/".join(common)
 
     def _ensure_unique_slug(self, slug: str, used: set[str], idx: int) -> str:
         base = slug or f"cluster-{idx:02d}"

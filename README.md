@@ -15,6 +15,28 @@ site2docs は、アーカイブ済みのウェブサイトから静的なナレ�
 - 由来情報を記録した YAML フロントマター付き Markdown を生成。
 - ページメタデータとクラスタ情報を保持する JSON マニフェストを出力。
 
+## 仕組み
+
+1. **レンダリング**: `rendering.PageRenderer` が Playwright でローカル HTML を開き、スクロール・ボタン展開・待機を自動実行して DOM を安定化させます。Playwright が使えない環境では自動的にローカル HTML へフォールバックします。
+2. **抽出**: `extraction.ContentExtractor` が Readability / Trafilatura / BeautifulSoup の順で本文を抽出し、足りない場合は `main` や `article` などセマンティック領域を強制的に切り出します。見出し・リンク・Markdown もこの段階で正規化されます。
+3. **クラスタリング**: `graphing.SiteGraph` が (a) 内部リンクを用いたグラフクラスタリング、(b) URL パターンの自動的な深さ緩和、(c) アーカイブディレクトリを用いた階層グルーピング、(d) 残存シングルトンのホスト単位での再結合、という 4 段階で関連ページをまとめます。これによりリンクが少ないサイトでも 2 ページ以上のまとまりを維持できます。
+4. **出力**: `builder.Site2DocsBuilder` がクラスタごとに Markdown を生成し、`manifest.json` や `logs/build_summary.json`（NDJSON 形式の進捗ログ）を同時に書き出します。ログは `tail -f` で追跡でき、CLI の `--verbose` オプションと合わせて長時間バッチの可視性を確保しています。
+
+このパイプラインは `uv run site2docs ...` 1 コマンドで完結し、入力 HTML 群からナレッジベース向け Markdown とメタデータを自動生成します。
+
+```mermaid
+flowchart LR
+    A[入力HTML<br/>site_backup/*] -->|Playwright| B[レンダリング<br/>rendering.PageRenderer]
+    B -->|DOM/HTML| C[抽出<br/>ContentExtractor]
+    C -->|ExtractedPage| D[クラスタリング<br/>SiteGraph]
+    D -->|Cluster/Pages| E[Markdown生成<br/>document.py]
+    D -->|Cluster/Pages| F[manifest.json]
+    A -->|進捗| G[logs/build_summary.json]
+    C -->|リンク/メタ| D
+    E --> H[docs/*.md]
+    F --> I[manifest.json]
+```
+
 ## 開発
 
 Python 実装は `src/site2docs` に配置されています。モジュールごとの役割は以下の通りです。

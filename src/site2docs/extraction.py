@@ -97,20 +97,35 @@ class ContentExtractor:
     # Internal helpers -------------------------------------------------
 
     def _extract_readable(self, html: str) -> tuple[str, str]:
+        semantic_cache: tuple[str, str] | None = None
+
+        def maybe_upgrade(title: str, content_html: str) -> tuple[str, str]:
+            nonlocal semantic_cache
+            if not self._config.semantic_body_fallback or BeautifulSoup is None:
+                return title, content_html
+            if semantic_cache is None:
+                semantic_cache = self._extract_semantic_body(html)
+            semantic_title, semantic_html = semantic_cache
+            if not semantic_html:
+                return title, content_html
+            if self._should_use_semantic(content_html, semantic_html):
+                return title or semantic_title, semantic_html
+            return title, content_html
+
         if self._config.readability and Document is not None:
             try:
                 doc = Document(html)
                 title = unescape(doc.short_title())
                 summary_html = doc.summary(html_partial=True)
                 if self._has_enough_content(summary_html):
-                    return title, summary_html
+                    return maybe_upgrade(title, summary_html)
             except Exception:
                 pass
         if self._config.trafilatura and trafilatura is not None:
             try:
                 extracted = trafilatura.extract(html, include_comments=False, include_tables=True, favor_recall=True)
                 if extracted and self._has_enough_content(extracted):
-                    return "", extracted
+                    return maybe_upgrade("", extracted)
             except Exception:
                 pass
         if not self._config.fallback_plain_text:
@@ -125,7 +140,7 @@ class ContentExtractor:
             return "", html
         title = soup.title.string.strip() if soup.title and soup.title.string else ""
         main = soup.body or soup
-        return title, str(main)
+        return maybe_upgrade(title, str(main))
 
     def _extract_headings(self, content_html: str) -> list[str]:
         if BeautifulSoup is None or not self._config.preserve_headings:
@@ -181,6 +196,101 @@ class ContentExtractor:
         soup = BeautifulSoup(content, "lxml")
         text = soup.get_text(" ", strip=True)
         return len(text)
+
+    def _should_use_semantic(self, current_html: str, semantic_html: str) -> bool:
+        focus_len = self._count_plain_text(semantic_html)
+        if focus_len <= 0:
+            return False
+        current_len = self._count_plain_text(current_html)
+        if current_len <= 0:
+            return focus_len >= max(self._config.semantic_min_length, self._config.min_content_characters)
+        if focus_len <= current_len:
+            return False
+        if focus_len - current_len >= self._config.semantic_min_delta:
+            return True
+        ratio = focus_len / max(current_len, 1)
+        if focus_len >= self._config.semantic_min_length and ratio >= self._config.semantic_length_ratio:
+            return True
+        return False
+
+    def _extract_semantic_body(self, html: str) -> tuple[str, str]:
+        if BeautifulSoup is None:
+            return "", ""
+        soup = BeautifulSoup(html, "lxml")
+        if soup is None:
+            return "", ""
+        title = soup.title.string.strip() if soup.title and soup.title.string else ""
+        body = soup.body
+        if body is None:
+            return title, ""
+        body_clone = BeautifulSoup(str(body), "lxml")
+        if body_clone is None:
+            return title, ""
+        self._strip_semantic_noise(body_clone)
+        candidate = self._select_semantic_candidate(body_clone)
+        if candidate is None:
+            return title, ""
+        return title, str(candidate)
+
+    def _select_semantic_candidate(self, soup: "BeautifulSoup") -> "BeautifulSoup":  # type: ignore[name-defined]
+        if soup is None:
+            return soup
+        preferred = soup.find("main")
+        if preferred and preferred.get_text(strip=True):
+            return preferred
+        role_main = soup.find(attrs={"role": lambda value: isinstance(value, str) and "main" in value.lower()})
+        if role_main and role_main.get_text(strip=True):
+            return role_main
+        articles = soup.find_all("article")
+        if articles:
+            articles.sort(key=lambda node: len(node.get_text(" ", strip=True)), reverse=True)
+            if articles[0].get_text(strip=True):
+                return articles[0]
+        best_node = None
+        best_length = 0
+        for node in soup.find_all(["section", "div"], limit=2000):
+            text = node.get_text(" ", strip=True)
+            if not text:
+                continue
+            length = len(text)
+            if length > best_length:
+                best_node = node
+                best_length = length
+        return best_node or soup
+
+    def _strip_semantic_noise(self, node: "BeautifulSoup") -> None:  # type: ignore[name-defined]
+        if BeautifulSoup is None or node is None:
+            return
+        removable_tags = ("header", "nav", "footer", "aside", "form")
+        for tag in list(node.find_all(removable_tags)):
+            tag.decompose()
+        for tag in list(node.find_all(attrs={"role": True})):
+            try:
+                role = str(tag.get("role", "") or "").lower()  # type: ignore[union-attr]
+            except AttributeError:
+                continue
+            if any(keyword in role for keyword in ("banner", "navigation", "contentinfo", "complementary")):
+                tag.decompose()
+        keywords = ("breadcrumb", "nav", "menu", "global", "footer", "sns", "social", "share", "cta")
+        for tag in list(node.find_all(attrs={"class": True})):
+            try:
+                classes_attr = tag.get("class") or []  # type: ignore[union-attr]
+            except AttributeError:
+                continue
+            if isinstance(classes_attr, str):
+                classes = classes_attr
+            else:
+                classes = " ".join(classes_attr)
+            classes = classes.lower()
+            if any(keyword in classes for keyword in keywords):
+                tag.decompose()
+        for tag in list(node.find_all(attrs={"id": True})):
+            try:
+                ident = str(tag.get("id", "") or "").lower()  # type: ignore[union-attr]
+            except AttributeError:
+                continue
+            if any(keyword in ident for keyword in keywords):
+                tag.decompose()
 
     def _infer_canonical_url(self, html: str, url: str, file_path: Path) -> str:
         sanitized = self._sanitize_url(url)

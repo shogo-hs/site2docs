@@ -59,3 +59,51 @@ def test_extract_raises_when_fallback_disabled(tmp_path: Path) -> None:
             file_path=file_path,
             captured_at=datetime.now(timezone.utc),
         )
+
+
+def test_extract_uses_semantic_body_when_readability_is_too_small(tmp_path: Path, monkeypatch) -> None:
+    long_text = "重要な情報" * 200
+    html = f"""
+    <html>
+      <head><title>サンプル</title></head>
+      <body>
+        <header>ナビゲーション</header>
+        <div role="main">
+          <section>
+            <h2>本来拾いたい本文</h2>
+            <p>{long_text}</p>
+          </section>
+        </div>
+        <footer>フッター</footer>
+      </body>
+    </html>
+    """
+    file_path = tmp_path / "index.html"
+    file_path.write_text(html, encoding="utf-8")
+
+    from site2docs import extraction
+
+    class DummyDocument:
+        def __init__(self, _: str) -> None:
+            pass
+
+        def short_title(self) -> str:
+            return "短い"
+
+        def summary(self, html_partial: bool = True) -> str:  # noqa: ARG002
+            return "<p>短い要約のみ</p>"
+
+    monkeypatch.setattr(extraction, "Document", DummyDocument)
+    monkeypatch.setattr(extraction, "trafilatura", None)
+
+    extractor = ContentExtractor(ExtractionConfig())
+    page = extractor.extract(
+        "pg_001",
+        html,
+        url="https://example.com/page",
+        file_path=file_path,
+        captured_at=datetime.now(timezone.utc),
+    )
+
+    assert "本来拾いたい本文" in page.markdown
+    assert "重要な情報" in page.markdown

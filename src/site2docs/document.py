@@ -50,9 +50,12 @@ def build_markdown(cluster: Cluster, pages: Sequence[ExtractedPage], created_at:
 
     for page in ordered_pages:
         body.append(f"## {page.title or page.page_id}")
-        body.append(
-            f"> 出典: {page.url or page.file_path.as_posix()} （取得日時: {page.captured_at.strftime('%Y-%m-%d %Z')})"
-        )
+        citation_lines = [
+            f"> 出典URL: {page.url or page.file_path.as_posix()}",
+            f"> ファイルパス: {page.file_path.as_posix()}",
+            f"> 取得日時: {page.captured_at.strftime('%Y-%m-%d %Z')}",
+        ]
+        body.extend(citation_lines)
         body.append("")
         body.append(page.markdown.strip())
         body.append("")
