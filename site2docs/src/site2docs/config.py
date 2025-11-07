@@ -49,6 +49,11 @@ class RenderConfig:
     render_timeout: float = 30.0
     auto_expand_candidates: bool = True
     max_concurrency: int | None = None
+    max_render_attempts: int = 2
+    timeout_backoff_factor: float = 1.6
+    file_scheme_wait_until: str = "domcontentloaded"
+    post_render_delay: float = 0.2
+    allow_plain_fallback: bool = False
 
 
 @dataclass(slots=True)
@@ -103,6 +108,7 @@ class BuildConfig:
         output_dir: Path,
         expand_texts: Optional[Iterable[str]] = None,
         max_concurrency: Optional[int] = None,
+        allow_render_fallback: bool = False,
     ) -> "BuildConfig":
         defaults = RenderConfig()
         render_kwargs: dict[str, Any] = {}
@@ -112,6 +118,8 @@ class BuildConfig:
             render_kwargs["expand_texts"] = merged
         if max_concurrency is not None:
             render_kwargs["max_concurrency"] = max(1, max_concurrency)
+        if allow_render_fallback:
+            render_kwargs["allow_plain_fallback"] = True
         render_config = RenderConfig(**render_kwargs)
         return cls(
             input_dir=input_dir,

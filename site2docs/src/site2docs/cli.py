@@ -32,6 +32,12 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Playwright レンダリング時の同時ブラウザページ数 (省略時は CPU/タスク数から自動推定)",
     )
+    parser.add_argument(
+        "--allow-render-fallback",
+        dest="allow_render_fallback",
+        action="store_true",
+        help="Playwright で再試行しても失敗したページを最終手段としてローカルHTMLのまま処理する",
+    )
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -44,6 +50,7 @@ def main(argv: Iterable[str] | None = None) -> None:
         args.output_dir,
         expand_texts=_parse_expand_texts(args.expand_texts),
         max_concurrency=args.render_concurrency,
+        allow_render_fallback=args.allow_render_fallback,
     )
     result = build_documents(config)
     summary = {
