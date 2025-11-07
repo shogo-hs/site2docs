@@ -1,5 +1,7 @@
 # site2docs
 
+[![version](https://img.shields.io/badge/version-0.1.0-blue.svg)](pyproject.toml)
+
 > Rehydrate archived HTML with Playwright and emit knowledge-base-ready Markdown plus a manifest in a single command.
 
 ## Overview
@@ -122,6 +124,10 @@ pages:
 - Tests: `uv run pytest`
 - CLI help: `uv run site2docs --help`
 - Manage dependencies exclusively through `pyproject.toml` / `uv.lock` with uv.
+
+## Versioning
+- Current release: **v0.1.0** (mirrors the `version` field in `pyproject.toml`).
+- When tagging releases, ensure this badge and `pyproject.toml` stay in sync.
 
 ## Related Documents
 - `codex_spec_static_doc_generation.md`: background specification and desired outputs

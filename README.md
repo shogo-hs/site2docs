@@ -1,5 +1,7 @@
 # site2docs
 
+[![version](https://img.shields.io/badge/version-0.1.0-blue.svg)](pyproject.toml)
+
 > アーカイブ済み HTML を Playwright で再現し、知識ベースに最適化された Markdown と manifest をワンコマンドで生成するツールキット。
 
 英語版 README は [README.en.md](README.en.md) を参照してください。
@@ -124,6 +126,10 @@ pages:
 - テスト: `uv run pytest`
 - CLI ヘルプ確認: `uv run site2docs --help`
 - 依存管理: すべて uv 経由で行い、`pyproject.toml`/`uv.lock` を唯一のソースオブトゥルースとしてください。
+
+## バージョン
+- 現行バージョン: **v0.1.0** （`pyproject.toml` の `version` フィールドに追従）
+- リリースタグを作成する際は `pyproject.toml` と README のバッジが一致していることを確認してください。
 
 ## 関連ドキュメント
 - `codex_spec_static_doc_generation.md`: 仕様の背景と期待する出力構成
