@@ -3,4 +3,5 @@ __pycache__/
 site2docs/.venv/
 .DS_Store
 site_backup/
+output/
 site2docs/output/
