@@ -5,9 +5,13 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from site2docs import rendering
-from site2docs.builder import Site2DocsBuilder, build_documents
+from site2docs.builder import ClusterValidationError, Site2DocsBuilder, build_documents
 from site2docs.config import BuildConfig, OutputConfig
+from site2docs.extraction import ExtractedPage
+from site2docs.graphing import Cluster
 
 
 def test_build_documents_writes_manifest_and_logs(tmp_path: Path, monkeypatch) -> None:
@@ -92,3 +96,40 @@ def test_discover_html_files_supports_multiple_extensions(tmp_path: Path) -> Non
     assert html_upper in discovered
     assert html_short in discovered
     assert ignored not in discovered
+
+
+def test_write_outputs_detects_invalid_cluster(tmp_path: Path) -> None:
+    builder = Site2DocsBuilder(
+        BuildConfig(
+            input_dir=tmp_path / "input",
+            output=OutputConfig(tmp_path / "output"),
+        )
+    )
+    page_path = tmp_path / "input" / "page.html"
+    page_path.parent.mkdir(parents=True, exist_ok=True)
+    page_path.write_text("<html></html>", encoding="utf-8")
+    pages = [
+        ExtractedPage(
+            page_id="pg_001",
+            url="https://example.com/",
+            file_path=page_path,
+            title="title",
+            markdown="body",
+            headings=[],
+            links=[],
+            captured_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        )
+    ]
+    clusters = [
+        Cluster(
+            cluster_id="cl_invalid",
+            label="invalid",
+            slug="invalid",
+            page_ids=["pg_missing"],
+        )
+    ]
+
+    with pytest.raises(ClusterValidationError) as exc:
+        builder._write_outputs(pages, clusters)
+
+    assert exc.value.missing_pages == {"cl_invalid": ("pg_missing",)}
