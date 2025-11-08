@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,7 +16,7 @@ from .document import build_markdown, write_markdown
 from .extraction import ContentExtractor, ExtractedPage
 from .graphing import Cluster, SiteGraph
 from .manifest import build_manifest, write_manifest
-from .rendering import render_paths
+from .rendering import RenderedPage, render_paths
 
 
 @dataclass(slots=True)
@@ -90,27 +91,7 @@ class Site2DocsBuilder:
             )
         self._logger.info("レンダリングが完了しました (%d 件)。", len(rendered_pages))
 
-        pages: list[ExtractedPage] = []
-        for index, rendered in enumerate(rendered_pages, start=1):
-            page_id = f"pg_{index:03d}"
-            captured_at = self._infer_captured_at(rendered.source_path)
-            pages.append(
-                self.extractor.extract(
-                    page_id,
-                    rendered.final_html,
-                    url=rendered.final_url,
-                    file_path=rendered.source_path,
-                    captured_at=captured_at,
-                )
-            )
-            self._logger.info("抽出中 (%d/%d): %s", index, len(rendered_pages), rendered.source_path.name)
-            self._update_summary(
-                "extracting",
-                total_html=total_html,
-                rendered=len(rendered_pages),
-                extracted=index,
-                last_file=str(rendered.source_path),
-            )
+        pages = await self._extract_rendered_pages(rendered_pages, total_html)
 
         clusters = self.graph.cluster(pages)
         self._logger.info("クラスタリング完了: %d 件", len(clusters))
@@ -146,6 +127,67 @@ class Site2DocsBuilder:
                 continue
             if path.suffix.lower() in {".html", ".htm"}:
                 yield path
+
+    async def _extract_rendered_pages(
+        self, rendered_pages: Sequence[RenderedPage], total_html: int
+    ) -> list[ExtractedPage]:
+        total = len(rendered_pages)
+        if total == 0:
+            return []
+        worker_count = self._determine_extract_workers(total)
+        semaphore = asyncio.Semaphore(worker_count)
+        progress_lock = asyncio.Lock()
+        completed = 0
+        results: list[ExtractedPage | None] = [None] * total
+
+        async def process(index: int, rendered: RenderedPage) -> None:
+            nonlocal completed
+            async with semaphore:
+                captured_at = self._infer_captured_at(rendered.source_path)
+                page = await asyncio.to_thread(
+                    self.extractor.extract,
+                    f"pg_{index + 1:03d}",
+                    rendered.final_html,
+                    url=rendered.final_url,
+                    file_path=rendered.source_path,
+                    captured_at=captured_at,
+                )
+            results[index] = page
+            async with progress_lock:
+                completed += 1
+                current = completed
+            self._logger.info(
+                "抽出中 (%d/%d): %s",
+                current,
+                total,
+                rendered.source_path.name,
+            )
+            self._update_summary(
+                "extracting",
+                total_html=total_html,
+                rendered=total,
+                extracted=current,
+                last_file=str(rendered.source_path),
+            )
+
+        await asyncio.gather(
+            *(process(index, rendered) for index, rendered in enumerate(rendered_pages))
+        )
+
+        return [page for page in results if page is not None]
+
+    def _determine_extract_workers(self, total: int) -> int:
+        requested = self.config.extract.max_workers
+        if requested is not None and requested > 0:
+            return max(1, min(total, requested))
+        cpu_total = os.cpu_count() or 2
+        if cpu_total <= 1:
+            baseline = 1
+        elif cpu_total <= 4:
+            baseline = cpu_total
+        else:
+            baseline = min(8, cpu_total // 2 + 2)
+        return max(1, min(total, baseline))
 
     def _write_outputs(
         self,

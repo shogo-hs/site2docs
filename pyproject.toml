@@ -17,6 +17,7 @@ dependencies = [
     "python-slugify",
     "beautifulsoup4",
     "lxml",
+    "charset-normalizer",
 ]
 
 [project.optional-dependencies]
