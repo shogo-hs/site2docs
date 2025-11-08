@@ -7,7 +7,7 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Awaitable, Callable, Iterable
+from typing import Awaitable, Callable, Iterable, Literal
 
 from .config import RenderConfig
 
@@ -23,6 +23,9 @@ except Exception:  # pragma: no cover - executed when dependency missing
 logger = logging.getLogger(__name__)
 
 
+RenderMode = Literal["playwright", "plain"]
+
+
 @dataclass(slots=True)
 class RenderedPage:
     """HTML ページをレンダリングした結果。"""
@@ -30,6 +33,8 @@ class RenderedPage:
     source_path: Path
     final_html: str
     final_url: str
+    render_mode: RenderMode
+    fallback_reason: str | None = None
 
 
 ProgressCallback = Callable[[int, int, Path], None]
@@ -127,9 +132,12 @@ class PageRenderer:
 
         pages: list[RenderedPage] = []
         if async_playwright is None:
+            logger.warning(
+                "Playwright が利用できないため、ローカル HTML をそのまま使用します。"
+            )
             total = len(path_list)
             for index, path in enumerate(path_list, start=1):
-                pages.append(self._read_without_render(path))
+                pages.append(self._read_without_render(path, reason="playwright_unavailable"))
                 if progress is not None:
                     progress(index, total, path)
                 else:
@@ -220,13 +228,13 @@ class PageRenderer:
                         path.name,
                         wait_until,
                     )
-                    return self._read_without_render(path)
+                    return self._read_without_render(path, reason="playwright_timeout")
                 raise RuntimeError(
                     "Playwright レンダリングに失敗しました。"
                     f" path={path} attempts={attempts}。"
                     " --allow-render-fallback を指定するとローカルHTMLで継続できます。"
                 ) from error
-        return self._read_without_render(path)
+        return self._read_without_render(path, reason="unknown")
 
     async def _render_single(self, context: BrowserContext, path: Path, wait_until: str, timeout: float) -> RenderedPage:
         page = await self._create_page(context, path)
@@ -237,7 +245,12 @@ class PageRenderer:
             if delay > 0:
                 await page.wait_for_timeout(delay * 1000)
             html = await page.content()
-            return RenderedPage(source_path=path, final_html=html, final_url=page.url)
+            return RenderedPage(
+                source_path=path,
+                final_html=html,
+                final_url=page.url,
+                render_mode="playwright",
+            )
         finally:
             await page.close()
 
@@ -255,9 +268,15 @@ class PageRenderer:
         if self._config.expand_texts:
             await page.evaluate(_AUTO_EXPAND_BY_TEXT, list(self._config.expand_texts))
 
-    def _read_without_render(self, path: Path) -> RenderedPage:
+    def _read_without_render(self, path: Path, reason: str | None = None) -> RenderedPage:
         html = path.read_text(encoding="utf-8", errors="ignore")
-        return RenderedPage(source_path=path, final_html=html, final_url=path.as_uri())
+        return RenderedPage(
+            source_path=path,
+            final_html=html,
+            final_url=path.as_uri(),
+            render_mode="plain",
+            fallback_reason=reason,
+        )
 
     def _resolve_wait_until(self, path: Path, attempt: int) -> str:
         if self._is_local_file(path):

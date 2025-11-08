@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Optional, Sequence
+from typing import Any, Iterable, Mapping, Optional, Sequence
 
 
 def _merge_expand_texts(
@@ -151,6 +151,8 @@ class BuildConfig:
         expand_texts: Optional[Iterable[str]] = None,
         max_concurrency: Optional[int] = None,
         allow_render_fallback: bool = False,
+        extraction_overrides: Mapping[str, Any] | None = None,
+        graph_overrides: Mapping[str, Any] | None = None,
     ) -> "BuildConfig":
         defaults = RenderConfig()
         render_kwargs: dict[str, Any] = {}
@@ -165,8 +167,12 @@ class BuildConfig:
         if allow_render_fallback:
             render_kwargs["allow_plain_fallback"] = True
         render_config = RenderConfig(**render_kwargs)
+        extract_config = ExtractionConfig(**(dict(extraction_overrides) if extraction_overrides else {}))
+        graph_config = GraphConfig(**(dict(graph_overrides) if graph_overrides else {}))
         return cls(
             input_dir=input_dir,
             output=OutputConfig(output_dir),
             render=render_config,
+            extract=extract_config,
+            graph=graph_config,
         )

@@ -22,6 +22,8 @@ from .rendering import render_paths
 class BuildResult:
     pages: list[ExtractedPage]
     clusters: list[Cluster]
+    render_fallback_pages: int
+    render_fallback_reasons: tuple[str, ...]
 
 
 class ClusterValidationError(RuntimeError):
@@ -62,8 +64,30 @@ class Site2DocsBuilder:
         self._update_summary("discovered", total_html=total_html)
         self._logger.info("HTML ファイルを %d 件検出しました。", total_html)
 
-        rendered_pages = await render_paths(html_paths, self.config.render, progress=self._report_render_progress)
-        self._update_summary("rendered", total_html=total_html, rendered=len(rendered_pages))
+        rendered_pages = await render_paths(
+            html_paths, self.config.render, progress=self._report_render_progress
+        )
+        fallback_pages = [page for page in rendered_pages if page.render_mode != "playwright"]
+        fallback_reasons = sorted(
+            {
+                reason if reason else "unknown"
+                for reason in (page.fallback_reason for page in fallback_pages)
+            }
+        )
+        self._update_summary(
+            "rendered",
+            total_html=total_html,
+            rendered=len(rendered_pages),
+            fallback_pages=len(fallback_pages),
+            fallback_reasons=fallback_reasons,
+        )
+        if fallback_pages:
+            reason_text = ", ".join(fallback_reasons) if fallback_reasons else "不明"
+            self._logger.warning(
+                "Playwright レンダリングを利用できなかったページが %d 件あります (理由: %s)",
+                len(fallback_pages),
+                reason_text,
+            )
         self._logger.info("レンダリングが完了しました (%d 件)。", len(rendered_pages))
 
         pages: list[ExtractedPage] = []
@@ -106,8 +130,15 @@ class Site2DocsBuilder:
             documents=len(artifacts["documents"]),
             last_document=artifacts.get("last_document"),
             manifest=str(artifacts["manifest"]),
+            fallback_pages=len(fallback_pages),
+            fallback_reasons=fallback_reasons,
         )
-        return BuildResult(pages=pages, clusters=clusters)
+        return BuildResult(
+            pages=pages,
+            clusters=clusters,
+            render_fallback_pages=len(fallback_pages),
+            render_fallback_reasons=tuple(fallback_reasons),
+        )
 
     def _discover_html_files(self, directory: Path) -> Iterable[Path]:
         for path in directory.rglob("*"):

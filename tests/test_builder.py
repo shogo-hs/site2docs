@@ -48,6 +48,8 @@ def test_build_documents_writes_manifest_and_logs(tmp_path: Path, monkeypatch) -
     assert len(result.pages) == 1
     assert len(result.clusters) == 1
     assert result.pages[0].captured_at == captured_at
+    assert result.render_fallback_pages == 1
+    assert result.render_fallback_reasons == ("playwright_unavailable",)
 
     doc_path = output_dir / "docs" / f"{result.clusters[0].slug}.md"
     manifest_path = output_dir / "manifest.json"
@@ -66,6 +68,8 @@ def test_build_documents_writes_manifest_and_logs(tmp_path: Path, monkeypatch) -
     assert last_event["documents"]
     assert last_event["pages"] == 1
     assert last_event["clusters"] == 1
+    assert last_event["fallback_pages"] == 1
+    assert last_event["fallback_reasons"] == ["playwright_unavailable"]
     assert len(summary_lines) >= 2, "少なくとも2件以上のイベントが記録される想定です"
 
     markdown = doc_path.read_text(encoding="utf-8")
