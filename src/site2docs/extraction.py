@@ -78,6 +78,7 @@ class ContentExtractor:
     def __init__(self, config: ExtractionConfig) -> None:
         self._config = config
         self._logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+        self._warn_missing_dependencies()
 
     def extract(self, page_id: str, html: str, *, url: str, file_path: Path, captured_at: datetime) -> ExtractedPage:
         canonical_url = self._infer_canonical_url(html, url, file_path)
@@ -187,6 +188,32 @@ class ContentExtractor:
             return content_html
         soup = BeautifulSoup(content_html, "lxml")
         return soup.get_text("\n")
+
+    def _warn_missing_dependencies(self) -> None:
+        if self._config.readability and Document is None:
+            self._logger.warning(
+                "readability パッケージが存在しないため、Readability による本文抽出をスキップします。"
+            )
+        if self._config.trafilatura and trafilatura is None:
+            self._logger.warning(
+                "Trafilatura が利用できないため、セマンティック抽出の第2候補が無効化されます。"
+            )
+        if html_to_markdown is None:
+            self._logger.warning(
+                "markdownify が利用できないため、Markdown 生成はプレーンテキストへのフォールバックを使用します。"
+            )
+        if BeautifulSoup is None:
+            impacted: list[str] = []
+            if self._config.preserve_headings:
+                impacted.append("見出し抽出")
+            if self._config.semantic_body_fallback:
+                impacted.append("セマンティック本文補完")
+            impacted.append("リンク正規化")
+            details = "、".join(impacted)
+            self._logger.warning(
+                "BeautifulSoup が利用できないため、%s がプレーンテキストベースの処理にフォールバックします。",
+                details,
+            )
 
     def _has_enough_content(self, content: str) -> bool:
         threshold = self._config.min_content_characters

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from datetime import datetime, timezone
@@ -11,6 +12,7 @@ from site2docs import rendering
 from site2docs.builder import ClusterValidationError, Site2DocsBuilder, build_documents
 from site2docs.config import BuildConfig, OutputConfig
 from site2docs.extraction import ExtractedPage
+from site2docs.rendering import RenderedPage
 from site2docs.graphing import Cluster
 
 
@@ -137,3 +139,71 @@ def test_write_outputs_detects_invalid_cluster(tmp_path: Path) -> None:
         builder._write_outputs(pages, clusters)
 
     assert exc.value.missing_pages == {"cl_invalid": ("pg_missing",)}
+
+
+def test_extract_rendered_pages_recovers_from_extraction_failure(tmp_path: Path, monkeypatch, caplog) -> None:
+    caplog.set_level("INFO")
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    html_ok = input_dir / "ok.html"
+    html_fail = input_dir / "fail.html"
+    html_ok.write_text("<html><body>ok</body></html>", encoding="utf-8")
+    html_fail.write_text("<html><body>ng</body></html>", encoding="utf-8")
+
+    builder = Site2DocsBuilder(
+        BuildConfig(
+            input_dir=input_dir,
+            output=OutputConfig(tmp_path / "output"),
+        )
+    )
+    builder._prepare_logging_resources()
+
+    rendered_pages = [
+        RenderedPage(
+            source_path=html_fail,
+            final_html=html_fail.read_text(encoding="utf-8"),
+            final_url="https://example.com/fail",
+            render_mode="plain",
+        ),
+        RenderedPage(
+            source_path=html_ok,
+            final_html=html_ok.read_text(encoding="utf-8"),
+            final_url="https://example.com/ok",
+            render_mode="plain",
+        ),
+    ]
+
+    def fake_extract(
+        page_id: str,
+        html: str,
+        *,
+        url: str,
+        file_path: Path,
+        captured_at: datetime,
+    ) -> ExtractedPage:
+        if page_id.endswith("001"):
+            raise RuntimeError("boom")
+        return ExtractedPage(
+            page_id=page_id,
+            url=url,
+            file_path=file_path,
+            title="ok",
+            markdown=html,
+            headings=[],
+            links=[],
+            captured_at=captured_at,
+        )
+
+    monkeypatch.setattr(builder.extractor, "extract", fake_extract)
+
+    result = asyncio.run(builder._extract_rendered_pages(rendered_pages, total_html=2))
+
+    assert len(result) == 1
+    assert result[0].page_id.endswith("002")
+    assert any("抽出に失敗" in record.message for record in caplog.records)
+
+    summary_lines = [
+        line for line in builder._summary_path.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
+    events = [json.loads(line) for line in summary_lines]
+    assert any(event.get("failed") == 1 for event in events)

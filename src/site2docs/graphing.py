@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -46,6 +47,8 @@ class SiteGraph:
 
     def __init__(self, config: GraphConfig) -> None:
         self._config = config
+        self._logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+        self._warn_missing_dependencies()
 
     def cluster(self, pages: Sequence[ExtractedPage]) -> list[Cluster]:
         if not pages:
@@ -332,6 +335,16 @@ class SiteGraph:
         except Exception:
             headline = documents[0].splitlines()[0] if documents[0] else ""
             return headline[:50]
+
+    def _warn_missing_dependencies(self) -> None:
+        if nx is None or greedy_modularity_communities is None:
+            self._logger.warning(
+                "networkx が利用できないため、グラフベースのコミュニティ検出をスキップし、URL/ディレクトリベースのフォールバックのみを使用します。"
+            )
+        if TfidfVectorizer is None:
+            self._logger.warning(
+                "scikit-learn の TfidfVectorizer が利用できないため、TF-IDF によるクラスタラベル推定をスキップします。"
+            )
 
     def _detect_language(self, documents: Sequence[str]) -> str:
         sample = "".join(documents)[:5000]

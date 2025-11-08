@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -107,3 +108,29 @@ def test_extract_uses_semantic_body_when_readability_is_too_small(tmp_path: Path
 
     assert "本来拾いたい本文" in page.markdown
     assert "重要な情報" in page.markdown
+
+
+def test_content_extractor_warns_when_optional_dependencies_missing(monkeypatch, caplog) -> None:
+    from site2docs import extraction
+
+    monkeypatch.setattr(extraction, "Document", None)
+    monkeypatch.setattr(extraction, "trafilatura", None)
+    monkeypatch.setattr(extraction, "BeautifulSoup", None)
+    monkeypatch.setattr(extraction, "html_to_markdown", None)
+
+    caplog.set_level(logging.WARNING)
+
+    ContentExtractor(
+        ExtractionConfig(
+            readability=True,
+            trafilatura=True,
+            preserve_headings=True,
+            semantic_body_fallback=True,
+        )
+    )
+
+    messages = [record.message for record in caplog.records if record.levelno >= logging.WARNING]
+    assert any("Readability" in message for message in messages)
+    assert any("Trafilatura" in message for message in messages)
+    assert any("BeautifulSoup" in message for message in messages)
+    assert any("markdownify" in message for message in messages)

@@ -138,24 +138,55 @@ class Site2DocsBuilder:
         semaphore = asyncio.Semaphore(worker_count)
         progress_lock = asyncio.Lock()
         completed = 0
+        successful = 0
+        failed_count = 0
+        failed_paths: list[Path] = []
         results: list[ExtractedPage | None] = [None] * total
 
         async def process(index: int, rendered: RenderedPage) -> None:
-            nonlocal completed
+            nonlocal completed, successful, failed_count
             async with semaphore:
                 captured_at = self._infer_captured_at(rendered.source_path)
-                page = await asyncio.to_thread(
-                    self.extractor.extract,
-                    f"pg_{index + 1:03d}",
-                    rendered.final_html,
-                    url=rendered.final_url,
-                    file_path=rendered.source_path,
-                    captured_at=captured_at,
-                )
+                try:
+                    page = await asyncio.to_thread(
+                        self.extractor.extract,
+                        f"pg_{index + 1:03d}",
+                        rendered.final_html,
+                        url=rendered.final_url,
+                        file_path=rendered.source_path,
+                        captured_at=captured_at,
+                    )
+                except Exception as exc:  # pragma: no cover - defensive path
+                    async with progress_lock:
+                        completed += 1
+                        current = completed
+                        failed_count += 1
+                        extracted_now = successful
+                    failed_paths.append(rendered.source_path)
+                    self._logger.error(
+                        "抽出に失敗しました (%d/%d): %s (%s)",
+                        current,
+                        total,
+                        rendered.source_path.name,
+                        exc,
+                        exc_info=exc,
+                    )
+                    self._update_summary(
+                        "extracting",
+                        total_html=total_html,
+                        rendered=total,
+                        extracted=extracted_now,
+                        failed=failed_count,
+                        last_file=str(rendered.source_path),
+                        last_error=str(exc),
+                    )
+                    return
             results[index] = page
             async with progress_lock:
                 completed += 1
                 current = completed
+                successful += 1
+                extracted_now = successful
             self._logger.info(
                 "抽出中 (%d/%d): %s",
                 current,
@@ -166,13 +197,22 @@ class Site2DocsBuilder:
                 "extracting",
                 total_html=total_html,
                 rendered=total,
-                extracted=current,
+                extracted=extracted_now,
+                failed=failed_count,
                 last_file=str(rendered.source_path),
             )
 
         await asyncio.gather(
             *(process(index, rendered) for index, rendered in enumerate(rendered_pages))
         )
+
+        if failed_paths:
+            samples = ", ".join(path.name for path in failed_paths[:3])
+            self._logger.warning(
+                "抽出に失敗したページが %d 件あります。サンプル: %s",
+                failed_count,
+                samples,
+            )
 
         return [page for page in results if page is not None]
 
