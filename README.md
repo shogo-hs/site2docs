@@ -53,6 +53,46 @@ flowchart LR
    uv run site2docs --help
    ```
 
+## 入力データの準備
+`site_backup/` にはアーカイブ済みの HTML をホストごとに配置します。既存ポータルのバックアップを持っていない場合は、以下のいずれかの方法でサンプルを用意してください。
+
+- **既存アーカイブをコピーする:** `wget --mirror` や社内バックアップから取得した HTML 群を `site_backup/<project>/` に展開します。CSS/画像などの相対パスも保つことで Playwright がレイアウトを再現できます。
+- **チュートリアル用サンプルを生成する:**
+  ```bash
+  mkdir -p site_backup/sample_site
+  cat <<'HTML' > site_backup/sample_site/index.html
+  <!doctype html>
+  <html lang="ja">
+    <head>
+      <meta charset="utf-8" />
+      <title>Sample Service</title>
+    </head>
+    <body>
+      <h1>サイト移行の手引き</h1>
+      <p>RAG 前処理のために Markdown を生成するサンプルページです。</p>
+      <a href="./faq.html">FAQ はこちら</a>
+    </body>
+  </html>
+  HTML
+  cat <<'HTML' > site_backup/sample_site/faq.html
+  <!doctype html>
+  <html lang="ja">
+    <head>
+      <meta charset="utf-8" />
+      <title>FAQ</title>
+    </head>
+    <body>
+      <h1>よくある質問</h1>
+      <details>
+        <summary>Playwright が失敗する場合</summary>
+        <p>再実行または --allow-render-fallback を検討します。</p>
+      </details>
+    </body>
+  </html>
+  HTML
+  ```
+  2 枚の HTML を用意するだけでもクラスタリングや manifest の挙動を確認できます。
+
 ## クイックスタート
 最小構成で Markdown と manifest を生成する例です。
 ```bash
@@ -64,6 +104,21 @@ uv run site2docs \
 - `output/sample_site/docs/*.md` にクラスタ単位のドキュメントが作成されます（例: `output/sample_site/docs/example-cluster.md`）。
 - `output/sample_site/manifest.json` にはページ ID、クラスタ ID、URL、取得時刻が格納されます。
 - `output/sample_site/logs/build_summary.json` を `tail -f` すると、`discovered → rendered → extracting → clustering → completed` の進捗が確認できます。
+
+## 設定リファレンス
+高度な調整が必要な場合は、`src/site2docs/config.py` の設定モデルを直接参照できます。主なエントリポイントは以下のとおりです。
+
+| 設定クラス | 役割 | 主な項目 | 参照先 |
+| --- | --- | --- | --- |
+| `RenderConfig` | Playwright のレンダリング制御 | `max_concurrency` / `expand_texts` / `allow_plain_fallback` | `src/site2docs/config.py` |
+| `ExtractionConfig` | 本文抽出と閾値設定 | `min_content_characters` / `semantic_body_fallback` | `src/site2docs/config.py` |
+| `GraphConfig` | グラフ構築とクラスタリング | `label_token_pattern` / `min_cluster_size` / `url_pattern_depth` | `src/site2docs/config.py` |
+| `BuildConfig` | CLI 引数から全体設定を組み立て | `from_args()` で CLI 指定を反映 | `src/site2docs/config.py` |
+
+CLI から直接指定できない項目を変更したい場合は、以下のいずれかを検討してください。
+
+- `pyproject.toml` の `tool.site2docs` セクションを追加し、自前スクリプトから `BuildConfig` を生成する。
+- `src/site2docs/config.py` を参考にカスタムスクリプトを作成し、`Site2DocsBuilder` を呼び出す（例: `python -m site2docs.builder` 形式）。
 
 ## CLI オプション一覧
 | オプション | 既定値 | 説明 |
@@ -108,6 +163,18 @@ pages: [pg_001]
 - `--verbose` を付けると INFO ログが CLI にも出力され、Playwright の進行状況や抽出対象ファイル名が分かります。
 - 長時間ジョブでは `tail -f output/<name>/logs/build_summary.json` を別ターミナルで常時監視する運用を推奨します。
 
+### stage フィールドの意味
+| stage | 意味 | 主な項目 |
+| --- | --- | --- |
+| `discovered` | 入力 HTML を走査し終えた直後 | `total_html` |
+| `rendering` / `rendered` | Playwright によるレンダリング中 / 完了 | `rendered` / `last_file` |
+| `extracting` | 本文抽出ループ | `extracted` / `last_file` |
+| `clustering` | グラフ構築とクラスタリング | `clusters` |
+| `writing` | Markdown 出力中 | `documents_count` / `last_document` |
+| `completed` | すべての成果物を生成済み | `documents` / `manifest` |
+
+ログが停止した stage を特定できるため、失敗箇所の切り分けに役立ちます。異常終了時は最後のレコードと同じ `stage` の INFO ログを参照してください。
+
 ## 高度な設定・運用 Tips
 - **独自ボタンの展開**: `--expand-texts "表示する,Show details"` のように追加すると既定辞書へ自動マージされます。
 - **並列度の調整**: I/O が遅いファイルシステムでは `--render-concurrency 4` など控えめに設定すると安定します。
@@ -120,6 +187,8 @@ pages: [pg_001]
 - **入力ディレクトリが見つからないエラー**: `site_backup/<host>/` の絶対パスを指定し、シンボリックリンクの場合は実体パスを渡してください。
 - **抽出結果が空になる**: HTML が 400 文字以下の場合は `ExtractionConfig.min_content_characters` に達しない可能性があります。テンプレートやメタリフレッシュのみのページは除外してください。
 - **クラスタが分裂しすぎる**: ルート直下に多数のサブディレクトリがある場合、URL パターン深度を下げるか、リンクを再構築して再アーカイブしてください。
+- **Playwright のレンダリングが途中で止まる**: `output/<name>/logs/build_summary.json` で `rendering` ステージの最後に記録された `last_file` を確認し、該当 HTML をブラウザで開いて JavaScript エラーがないか検証します。`--allow-render-fallback` を一時的に有効にして抽出のみ進めると原因切り分けが容易になります。
+- **長時間バッチで原因箇所を特定したい**: `completed` 以前で停止した場合、同じ `stage` のログ行を抽出します。例: `jq 'select(.stage=="extracting")' logs/build_summary.json | tail`。`last_file` や `documents_count` が繰り返し同じ値であれば、ループ内の例外が疑われます。
 
 ## 開発者向けメモ
 - コードは `src/site2docs/` に集約。責務別モジュール（`rendering.py` / `extraction.py` / `graphing.py` / `document.py` / `manifest.py` / `builder.py` / `cli.py`）。
