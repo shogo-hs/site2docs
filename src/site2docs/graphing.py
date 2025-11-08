@@ -310,10 +310,19 @@ class SiteGraph:
         try:
             vectorizer_kwargs: dict[str, Any] = {
                 "max_features": self._config.label_tfidf_terms,
-                "stop_words": "english",
             }
             if self._config.label_token_pattern:
                 vectorizer_kwargs["token_pattern"] = self._config.label_token_pattern
+            language = self._detect_language(documents)
+            stop_words: Any
+            if language == "en":
+                stop_words = "english"
+            elif language == "ja":
+                stop_words = list(self._config.label_stop_words)
+            else:
+                stop_words = None
+            if stop_words:
+                vectorizer_kwargs["stop_words"] = stop_words
             vectorizer = TfidfVectorizer(**vectorizer_kwargs)
             matrix = vectorizer.fit_transform(documents)
             summed = matrix.sum(axis=0)
@@ -323,6 +332,29 @@ class SiteGraph:
         except Exception:
             headline = documents[0].splitlines()[0] if documents[0] else ""
             return headline[:50]
+
+    def _detect_language(self, documents: Sequence[str]) -> str:
+        sample = "".join(documents)[:5000]
+        if not sample:
+            return ""
+        japanese = sum(1 for char in sample if self._is_japanese_char(char))
+        latin = sum(1 for char in sample if char.isalpha() and "a" <= char.lower() <= "z")
+        total = sum(1 for char in sample if char.isalpha())
+        if total == 0:
+            return ""
+        if japanese / total >= 0.2:
+            return "ja"
+        if latin / total >= 0.5:
+            return "en"
+        return ""
+
+    def _is_japanese_char(self, char: str) -> bool:
+        return (
+            "一" <= char <= "龥"
+            or "ぁ" <= char <= "ゖ"
+            or "ァ" <= char <= "ヺ"
+            or char == "ー"
+        )
 
     def _infer_label_from_url_prefix(self, pages: Sequence[ExtractedPage]) -> str:
         http_pages = [page for page in pages if page.url.startswith(("http://", "https://"))]

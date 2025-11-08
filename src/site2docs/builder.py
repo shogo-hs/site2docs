@@ -87,7 +87,8 @@ class Site2DocsBuilder:
             "completed",
             pages=len(pages),
             clusters=len(clusters),
-            documents=artifacts["documents"],
+            documents=len(artifacts["documents"]),
+            last_document=artifacts.get("last_document"),
             manifest=str(artifacts["manifest"]),
         )
         return BuildResult(pages=pages, clusters=clusters)
@@ -106,17 +107,19 @@ class Site2DocsBuilder:
         output.logs_dir.mkdir(parents=True, exist_ok=True)
 
         generated_docs: list[str] = []
+        last_document: str | None = None
         for index, cluster in enumerate(clusters, start=1):
             markdown = build_markdown(cluster, pages, self.config.created_at)
             doc_path = output.docs_dir / f"{cluster.slug or cluster.cluster_id}.md"
             write_markdown(doc_path, markdown)
             generated_docs.append(str(doc_path))
+            last_document = str(doc_path)
             self._logger.info("Markdown を出力しました (%d/%d): %s", index, len(clusters), doc_path.name)
             self._update_summary(
                 "writing",
                 pages=len(pages),
                 clusters=len(clusters),
-                documents=generated_docs.copy(),
+                documents_count=len(generated_docs),
                 last_document=str(doc_path),
             )
 
@@ -124,7 +127,7 @@ class Site2DocsBuilder:
         manifest_path = output.root / "manifest.json"
         write_manifest(manifest_path, manifest)
         self._logger.info("manifest.json を出力しました。")
-        return {"documents": generated_docs, "manifest": manifest_path}
+        return {"documents": generated_docs, "manifest": manifest_path, "last_document": last_document}
 
     def _infer_captured_at(self, path: Path) -> datetime:
         try:

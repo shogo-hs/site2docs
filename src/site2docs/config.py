@@ -94,6 +94,25 @@ class GraphConfig:
     min_cluster_size: int = 2
     label_tfidf_terms: int = 5
     label_token_pattern: str | None = r"(?u)[\w一-龥ぁ-んァ-ヶー]+"
+    label_stop_words: Sequence[str] = (
+        "こと",
+        "ため",
+        "よう",
+        "です",
+        "ます",
+        "する",
+        "いる",
+        "ある",
+        "なる",
+        "この",
+        "その",
+        "それ",
+        "そして",
+        "また",
+        "など",
+        "さらに",
+        "しかし",
+    )
     url_pattern_depth: int = 3
     max_network_cluster_size: int = 12
     directory_cluster_depth: int = 2

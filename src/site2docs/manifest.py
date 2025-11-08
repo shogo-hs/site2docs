@@ -50,9 +50,12 @@ class Manifest:
 
 def build_manifest(pages: Sequence[ExtractedPage], clusters: Sequence[Cluster], created_at: datetime) -> Manifest:
     page_entries: list[PageEntry] = []
-    cluster_lookup = {cluster.cluster_id: cluster for cluster in clusters}
+    page_cluster_lookup: dict[str, str] = {}
+    for cluster in clusters:
+        for page_id in cluster.page_ids:
+            page_cluster_lookup.setdefault(page_id, cluster.cluster_id)
     for page in pages:
-        cluster_id = next((cid for cid, cluster in cluster_lookup.items() if page.page_id in cluster.page_ids), "")
+        cluster_id = page_cluster_lookup.get(page.page_id, "")
         page_entries.append(
             PageEntry(
                 page_id=page.page_id,
