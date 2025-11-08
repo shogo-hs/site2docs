@@ -8,7 +8,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping, Sequence
 
 from .config import BuildConfig
 from .document import build_markdown, write_markdown
@@ -22,6 +22,22 @@ from .rendering import render_paths
 class BuildResult:
     pages: list[ExtractedPage]
     clusters: list[Cluster]
+
+
+class ClusterValidationError(RuntimeError):
+    """クラスタと抽出結果の整合性が崩れた際に送出される例外。"""
+
+    def __init__(self, *, missing_pages: Mapping[str, Sequence[str]]) -> None:
+        self.missing_pages: dict[str, tuple[str, ...]] = {
+            cluster_id: tuple(page_ids)
+            for cluster_id, page_ids in missing_pages.items()
+        }
+        details = ", ".join(
+            f"{cluster_id}: {', '.join(page_ids)}"
+            for cluster_id, page_ids in self.missing_pages.items()
+        )
+        message = "クラスタに存在しないページ ID が参照されています: " + details
+        super().__init__(message)
 
 
 class Site2DocsBuilder:
@@ -100,7 +116,11 @@ class Site2DocsBuilder:
             if path.suffix.lower() in {".html", ".htm"}:
                 yield path
 
-    def _write_outputs(self, pages: list[ExtractedPage], clusters) -> dict[str, Any]:
+    def _write_outputs(
+        self,
+        pages: Sequence[ExtractedPage],
+        clusters: Sequence[Cluster],
+    ) -> dict[str, Any]:
         output = self.config.output
         output.root.mkdir(parents=True, exist_ok=True)
         output.docs_dir.mkdir(parents=True, exist_ok=True)
@@ -108,8 +128,13 @@ class Site2DocsBuilder:
 
         generated_docs: list[str] = []
         last_document: str | None = None
+        resolved_pages = self._resolve_cluster_pages(pages, clusters)
         for index, cluster in enumerate(clusters, start=1):
-            markdown = build_markdown(cluster, pages, self.config.created_at)
+            markdown = build_markdown(
+                cluster,
+                resolved_pages[cluster.cluster_id],
+                self.config.created_at,
+            )
             doc_path = output.docs_dir / f"{cluster.slug or cluster.cluster_id}.md"
             write_markdown(doc_path, markdown)
             generated_docs.append(str(doc_path))
@@ -128,6 +153,32 @@ class Site2DocsBuilder:
         write_manifest(manifest_path, manifest)
         self._logger.info("manifest.json を出力しました。")
         return {"documents": generated_docs, "manifest": manifest_path, "last_document": last_document}
+
+    def _resolve_cluster_pages(
+        self,
+        pages: Sequence[ExtractedPage],
+        clusters: Sequence[Cluster],
+    ) -> dict[str, list[ExtractedPage]]:
+        page_lookup = {page.page_id: page for page in pages}
+        missing: dict[str, list[str]] = {}
+        resolved: dict[str, list[ExtractedPage]] = {}
+        for cluster in clusters:
+            if not cluster.page_ids:
+                missing.setdefault(cluster.cluster_id, []).append("<ページIDが定義されていません>")
+                continue
+            ordered: list[ExtractedPage] = []
+            for page_id in cluster.page_ids:
+                page = page_lookup.get(page_id)
+                if page is None:
+                    missing.setdefault(cluster.cluster_id, []).append(page_id)
+                    continue
+                ordered.append(page)
+            if cluster.cluster_id in missing:
+                continue
+            resolved[cluster.cluster_id] = ordered
+        if missing:
+            raise ClusterValidationError(missing_pages=missing)
+        return resolved
 
     def _infer_captured_at(self, path: Path) -> datetime:
         try:

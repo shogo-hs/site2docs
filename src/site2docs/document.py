@@ -12,10 +12,24 @@ from .graphing import Cluster
 ISO_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
 
 
+class MissingClusterPageError(ValueError):
+    """クラスタが保持するページ ID と抽出済みページの整合性エラー。"""
+
+    def __init__(self, cluster_id: str, missing_page_ids: Sequence[str]) -> None:
+        self.cluster_id = cluster_id
+        self.missing_page_ids = tuple(missing_page_ids)
+        details = ", ".join(self.missing_page_ids)
+        message = f"クラスタ {cluster_id} に存在しないページ ID が含まれています: {details}"
+        super().__init__(message)
+
+
 def build_markdown(cluster: Cluster, pages: Sequence[ExtractedPage], created_at: datetime) -> str:
     """クラスタに対応する Markdown ドキュメントを組み立てます。"""
 
     page_lookup = {page.page_id: page for page in pages}
+    missing_page_ids = [pid for pid in cluster.page_ids if pid not in page_lookup]
+    if missing_page_ids:
+        raise MissingClusterPageError(cluster.cluster_id, missing_page_ids)
     ordered_pages = [page_lookup[pid] for pid in cluster.page_ids]
     source_urls = [page.url for page in ordered_pages if page.url]
     cluster_identifier = cluster.slug or cluster.cluster_id

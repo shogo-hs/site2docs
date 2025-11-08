@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from html import unescape
 from html.parser import HTMLParser
+import logging
 from pathlib import Path
 from typing import Iterable
 from urllib.parse import urljoin, urldefrag, urlparse
@@ -76,6 +77,7 @@ class ContentExtractor:
 
     def __init__(self, config: ExtractionConfig) -> None:
         self._config = config
+        self._logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
     def extract(self, page_id: str, html: str, *, url: str, file_path: Path, captured_at: datetime) -> ExtractedPage:
         canonical_url = self._infer_canonical_url(html, url, file_path)
@@ -98,6 +100,7 @@ class ContentExtractor:
 
     def _extract_readable(self, html: str) -> tuple[str, str]:
         semantic_cache: tuple[str, str] | None = None
+        extractor_errors: list[str] = []
 
         def maybe_upgrade(title: str, content_html: str) -> tuple[str, str]:
             nonlocal semantic_cache
@@ -119,19 +122,22 @@ class ContentExtractor:
                 summary_html = doc.summary(html_partial=True)
                 if self._has_enough_content(summary_html):
                     return maybe_upgrade(title, summary_html)
-            except Exception:
-                pass
+            except Exception as exc:
+                extractor_errors.append(f"readability: {exc}")
+                self._logger.debug("Readability での抽出に失敗しました。", exc_info=exc)
         if self._config.trafilatura and trafilatura is not None:
             try:
                 extracted = trafilatura.extract(html, include_comments=False, include_tables=True, favor_recall=True)
                 if extracted and self._has_enough_content(extracted):
                     return maybe_upgrade("", extracted)
-            except Exception:
-                pass
+            except Exception as exc:
+                extractor_errors.append(f"trafilatura: {exc}")
+                self._logger.debug("Trafilatura での抽出に失敗しました。", exc_info=exc)
         if not self._config.fallback_plain_text:
+            details = f" 詳細: {'; '.join(extractor_errors)}" if extractor_errors else ""
             raise RuntimeError(
                 "読み取り可能な本文抽出に失敗しました。ExtractionConfig.fallback_plain_text を True に設定すると"
-                " プレーンテキストへのフォールバックを有効化できます。"
+                " プレーンテキストへのフォールバックを有効化できます。" + details
             )
         if BeautifulSoup is None:
             return "", html
@@ -175,8 +181,8 @@ class ContentExtractor:
         if html_to_markdown is not None:
             try:
                 return html_to_markdown(content_html, strip="")
-            except Exception:
-                pass
+            except Exception as exc:
+                self._logger.debug("markdownify での変換に失敗しました。", exc_info=exc)
         if BeautifulSoup is None:
             return content_html
         soup = BeautifulSoup(content_html, "lxml")
