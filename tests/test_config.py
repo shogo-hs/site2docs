@@ -28,14 +28,18 @@ def test_from_args_accepts_extraction_and_graph_overrides(tmp_path: Path) -> Non
         extraction_overrides={
             "min_content_characters": 100,
             "semantic_body_fallback": False,
+            "max_workers": 5,
         },
         graph_overrides={
             "min_cluster_size": 1,
             "allow_singleton_clusters": True,
         },
+        launch_options={"headless": False},
     )
 
     assert config.extract.min_content_characters == 100
     assert config.extract.semantic_body_fallback is False
+    assert config.extract.max_workers == 5
     assert config.graph.min_cluster_size == 1
     assert config.graph.allow_singleton_clusters is True
+    assert config.render.launch_options == {"headless": False}

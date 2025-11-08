@@ -26,6 +26,13 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--expand-texts", dest="expand_texts", type=str, default="", help="自動展開したいボタン文言をカンマ区切りで指定")
     parser.add_argument("--verbose", dest="verbose", action="store_true", help="進捗ログを標準出力へ表示")
     parser.add_argument(
+        "--render-launch-options",
+        dest="render_launch_options",
+        type=str,
+        default=None,
+        help="Playwright ブラウザの起動オプションを JSON で指定",
+    )
+    parser.add_argument(
         "--render-concurrency",
         dest="render_concurrency",
         type=int,
@@ -67,6 +74,13 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         type=int,
         default=None,
         help="セマンティック補完で必要となる最小文字数差分",
+    )
+    extraction_group.add_argument(
+        "--extract-concurrency",
+        dest="extract_concurrency",
+        type=int,
+        default=None,
+        help="抽出処理の並列実行数 (省略時は CPU 数から自動推定)",
     )
     extraction_group.add_argument(
         "--no-readability",
@@ -135,6 +149,11 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
 def main(argv: Iterable[str] | None = None) -> None:
     args = parse_args(argv)
     _validate_args(args)
+    try:
+        launch_options = _parse_launch_options(args.render_launch_options)
+    except ValueError as exc:
+        print(f"[エラー] --render-launch-options: {exc}", file=sys.stderr)
+        raise SystemExit(2)
     _configure_logging(args.verbose)
     extraction_overrides = _collect_extraction_overrides(args)
     graph_overrides = _collect_graph_overrides(args)
@@ -144,6 +163,7 @@ def main(argv: Iterable[str] | None = None) -> None:
         expand_texts=_parse_expand_texts(args.expand_texts),
         max_concurrency=args.render_concurrency,
         allow_render_fallback=args.allow_render_fallback,
+        launch_options=launch_options,
         extraction_overrides=extraction_overrides,
         graph_overrides=graph_overrides,
     )
@@ -180,6 +200,8 @@ def _validate_args(args: argparse.Namespace) -> None:
         errors.append("[エラー] --semantic-length-ratio には 0 より大きい数値を指定してください。")
     if args.semantic_min_delta is not None and args.semantic_min_delta < 0:
         errors.append("[エラー] --semantic-min-delta には 0 以上の整数を指定してください。")
+    if args.extract_concurrency is not None and args.extract_concurrency < 1:
+        errors.append("[エラー] --extract-concurrency には 1 以上の整数を指定してください。")
     if args.min_cluster_size is not None and args.min_cluster_size < 1:
         errors.append("[エラー] --min-cluster-size には 1 以上の整数を指定してください。")
     if args.max_network_cluster_size is not None and args.max_network_cluster_size < 1:
@@ -215,6 +237,8 @@ def _collect_extraction_overrides(args: argparse.Namespace) -> dict[str, Any]:
         overrides["semantic_length_ratio"] = args.semantic_length_ratio
     if args.semantic_min_delta is not None:
         overrides["semantic_min_delta"] = args.semantic_min_delta
+    if args.extract_concurrency is not None:
+        overrides["max_workers"] = args.extract_concurrency
     if args.no_readability:
         overrides["readability"] = False
     if args.no_trafilatura:
@@ -244,6 +268,18 @@ def _collect_graph_overrides(args: argparse.Namespace) -> dict[str, Any]:
 def _configure_logging(verbose: bool) -> None:
     level = logging.INFO if verbose else logging.WARNING
     logging.basicConfig(level=level, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+
+
+def _parse_launch_options(raw: str | None) -> dict[str, Any] | None:
+    if raw is None or not raw.strip():
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:  # pragma: no cover - json error path
+        raise ValueError(f"JSON の解析に失敗しました ({exc.msg})") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError("JSON オブジェクトを指定してください。")
+    return parsed
 
 
 if __name__ == "__main__":

@@ -35,6 +35,8 @@ def test_cli_collects_extraction_overrides(tmp_path: Path, options: dict[str, st
         options["semantic_length_ratio"],
         "--semantic-min-delta",
         options["semantic_min_delta"],
+        "--extract-concurrency",
+        "4",
         "--no-readability",
         "--no-semantic-fallback",
     ]
@@ -45,6 +47,7 @@ def test_cli_collects_extraction_overrides(tmp_path: Path, options: dict[str, st
     assert overrides["semantic_min_length"] == int(options["semantic_min_length"])
     assert overrides["semantic_length_ratio"] == float(options["semantic_length_ratio"])
     assert overrides["semantic_min_delta"] == int(options["semantic_min_delta"])
+    assert overrides["max_workers"] == 4
     assert overrides["readability"] is False
     assert overrides["semantic_body_fallback"] is False
 
@@ -80,3 +83,9 @@ def test_cli_collects_graph_overrides(tmp_path: Path) -> None:
     assert overrides["directory_cluster_depth"] == 3
     assert overrides["url_pattern_depth"] == 2
     assert overrides["label_tfidf_terms"] == 8
+
+
+def test_parse_launch_options_returns_dict() -> None:
+    parsed = cli._parse_launch_options('{"headless": false, "proxy": {"server": "http://proxy"}}')
+
+    assert parsed == {"headless": False, "proxy": {"server": "http://proxy"}}

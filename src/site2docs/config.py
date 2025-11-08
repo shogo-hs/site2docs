@@ -70,6 +70,7 @@ class RenderConfig:
     file_scheme_wait_until: str = "domcontentloaded"
     post_render_delay: float = 0.2
     allow_plain_fallback: bool = False
+    launch_options: Mapping[str, Any] | None = None
 
 
 @dataclass(slots=True)
@@ -85,6 +86,7 @@ class ExtractionConfig:
     semantic_min_length: int = 600
     semantic_length_ratio: float = 1.25
     semantic_min_delta: int = 100
+    max_workers: int | None = None
 
 
 @dataclass(slots=True)
@@ -151,6 +153,7 @@ class BuildConfig:
         expand_texts: Optional[Iterable[str]] = None,
         max_concurrency: Optional[int] = None,
         allow_render_fallback: bool = False,
+        launch_options: Mapping[str, Any] | None = None,
         extraction_overrides: Mapping[str, Any] | None = None,
         graph_overrides: Mapping[str, Any] | None = None,
     ) -> "BuildConfig":
@@ -166,6 +169,8 @@ class BuildConfig:
             render_kwargs["max_concurrency"] = max(1, max_concurrency)
         if allow_render_fallback:
             render_kwargs["allow_plain_fallback"] = True
+        if launch_options:
+            render_kwargs["launch_options"] = dict(launch_options)
         render_config = RenderConfig(**render_kwargs)
         extract_config = ExtractionConfig(**(dict(extraction_overrides) if extraction_overrides else {}))
         graph_config = GraphConfig(**(dict(graph_overrides) if graph_overrides else {}))

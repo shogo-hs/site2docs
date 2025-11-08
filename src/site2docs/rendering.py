@@ -19,6 +19,11 @@ except Exception:  # pragma: no cover - executed when dependency missing
     Page = object  # type: ignore[misc,assignment]
     Route = object  # type: ignore[misc,assignment]
 
+try:  # pragma: no cover - optional dependency
+    from charset_normalizer import from_bytes as detect_charset  # type: ignore
+except Exception:  # pragma: no cover
+    detect_charset = None  # type: ignore[misc]
+
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +150,12 @@ class PageRenderer:
             return pages
 
         async with async_playwright() as playwright:  # type: ignore[misc]
-            browser = await playwright.chromium.launch()
+            launch_kwargs = (
+                dict(self._config.launch_options)
+                if self._config.launch_options is not None
+                else {}
+            )
+            browser = await playwright.chromium.launch(**launch_kwargs)
             total = len(path_list)
             results: list[RenderedPage | None] = [None] * total
             worker_count = self._determine_worker_count(total)
@@ -269,7 +279,7 @@ class PageRenderer:
             await page.evaluate(_AUTO_EXPAND_BY_TEXT, list(self._config.expand_texts))
 
     def _read_without_render(self, path: Path, reason: str | None = None) -> RenderedPage:
-        html = path.read_text(encoding="utf-8", errors="ignore")
+        html = self._read_local_file(path)
         return RenderedPage(
             source_path=path,
             final_html=html,
@@ -277,6 +287,33 @@ class PageRenderer:
             render_mode="plain",
             fallback_reason=reason,
         )
+
+    def _read_local_file(self, path: Path) -> str:
+        try:
+            data = path.read_bytes()
+        except OSError:
+            logger.debug("ローカルHTMLの読み込みに失敗しました。utf-8 で復旧を試みます。", exc_info=True)
+            try:
+                return path.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                logger.error("ローカルHTMLの読み込みに失敗しました: %s", path, exc_info=True)
+                return ""
+        if not data:
+            return ""
+        encoding = "utf-8"
+        if detect_charset is not None:
+            try:
+                result = detect_charset(data).best()
+            except Exception:
+                logger.debug("文字コード判定に失敗したため UTF-8 を使用します。", exc_info=True)
+                result = None
+            if result is not None and result.encoding:
+                encoding = result.encoding
+        try:
+            return data.decode(encoding, errors="replace")
+        except LookupError:
+            logger.debug("未知のエンコーディング %s のため UTF-8 フォールバックを使用します。", encoding)
+        return data.decode("utf-8", errors="replace")
 
     def _resolve_wait_until(self, path: Path, attempt: int) -> str:
         if self._is_local_file(path):
