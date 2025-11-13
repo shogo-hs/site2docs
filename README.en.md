@@ -51,6 +51,17 @@ flowchart LR
    uv run site2docs --help
    ```
 
+## LLM configuration (.env)
+When downstream automation needs an LLM API, keep credentials in a `.env` file at the repo root.
+
+1. Copy the template
+   ```bash
+   cp .env.example .env
+   ```
+2. Replace `SITE2DOCS_API_KEY` and `SITE2DOCS_MODEL` with your real values. `OPENAI_API_KEY` / `OPENAI_MODEL` are also recognised for compatibility.
+
+The CLI loads `.env` automatically on startup and never overwrites variables that are already exported in the shell.
+
 ## Quickstart
 Generate Markdown and a manifest from the bundled sample archive:
 ```bash

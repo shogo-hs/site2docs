@@ -16,6 +16,7 @@ pip-wheel-metadata/
 venv/
 .env
 .env.*
+!.env.example
 .cache/
 .mypy_cache/
 .ruff_cache/

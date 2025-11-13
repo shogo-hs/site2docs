@@ -11,6 +11,7 @@ from typing import Any, Iterable
 
 from .builder import build_documents
 from .config import BuildConfig
+from .env import current_llm_settings, load_env_file
 
 
 def _parse_expand_texts(raw: str | None) -> Iterable[str]:
@@ -147,6 +148,7 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: Iterable[str] | None = None) -> None:
+    load_env_file()
     args = parse_args(argv)
     _validate_args(args)
     try:
@@ -154,6 +156,7 @@ def main(argv: Iterable[str] | None = None) -> None:
     except ValueError as exc:
         print(f"[エラー] --render-launch-options: {exc}", file=sys.stderr)
         raise SystemExit(2)
+    llm_settings = current_llm_settings()
     _configure_logging(args.verbose)
     extraction_overrides = _collect_extraction_overrides(args)
     graph_overrides = _collect_graph_overrides(args)
@@ -174,6 +177,8 @@ def main(argv: Iterable[str] | None = None) -> None:
         "output": str(config.output.root),
         "render_fallback_pages": result.render_fallback_pages,
     }
+    if llm_settings.model:
+        summary["llm_model"] = llm_settings.model
     if result.render_fallback_reasons:
         summary["render_fallback_reasons"] = list(result.render_fallback_reasons)
     print(json.dumps(summary, ensure_ascii=False))
