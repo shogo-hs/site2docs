@@ -144,6 +144,28 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         default=None,
         help="クラスタラベルに採用する TF-IDF キーワード数",
     )
+
+    quality_group = parser.add_argument_group("品質・ハルシネーション対策")
+    quality_group.add_argument(
+        "--no-hallucination-check",
+        dest="no_hallucination_check",
+        action="store_true",
+        help="ハルシネーションチェック用の品質検証ノードを無効化する",
+    )
+    quality_group.add_argument(
+        "--hallucination-min-chars",
+        dest="hallucination_min_chars",
+        type=int,
+        default=None,
+        help="1 ページあたりに必要な最小文字数を指定して、不足時は警告を出す",
+    )
+    quality_group.add_argument(
+        "--hallucination-label-token-length",
+        dest="hallucination_label_token_length",
+        type=int,
+        default=None,
+        help="クラスタラベル検証で使用する最小トークン長",
+    )
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -160,6 +182,7 @@ def main(argv: Iterable[str] | None = None) -> None:
     _configure_logging(args.verbose)
     extraction_overrides = _collect_extraction_overrides(args)
     graph_overrides = _collect_graph_overrides(args)
+    quality_overrides = _collect_quality_overrides(args)
     config = BuildConfig.from_args(
         args.input_dir,
         args.output_dir,
@@ -169,6 +192,7 @@ def main(argv: Iterable[str] | None = None) -> None:
         launch_options=launch_options,
         extraction_overrides=extraction_overrides,
         graph_overrides=graph_overrides,
+        quality_overrides=quality_overrides,
     )
     result = build_documents(config)
     summary = {
@@ -221,6 +245,15 @@ def _validate_args(args: argparse.Namespace) -> None:
         errors.append("[エラー] --url-pattern-depth には 0 以上の整数を指定してください。")
     if args.label_tfidf_terms is not None and args.label_tfidf_terms < 1:
         errors.append("[エラー] --label-tfidf-terms には 1 以上の整数を指定してください。")
+    if args.hallucination_min_chars is not None and args.hallucination_min_chars < 0:
+        errors.append("[エラー] --hallucination-min-chars には 0 以上の整数を指定してください。")
+    if (
+        args.hallucination_label_token_length is not None
+        and args.hallucination_label_token_length < 1
+    ):
+        errors.append(
+            "[エラー] --hallucination-label-token-length には 1 以上の整数を指定してください。"
+        )
 
     if errors:
         for message in errors:
@@ -267,6 +300,17 @@ def _collect_graph_overrides(args: argparse.Namespace) -> dict[str, Any]:
         overrides["url_pattern_depth"] = args.url_pattern_depth
     if args.label_tfidf_terms is not None:
         overrides["label_tfidf_terms"] = args.label_tfidf_terms
+    return overrides
+
+
+def _collect_quality_overrides(args: argparse.Namespace) -> dict[str, Any]:
+    overrides: dict[str, Any] = {}
+    if args.no_hallucination_check:
+        overrides["enable_hallucination_checks"] = False
+    if args.hallucination_min_chars is not None:
+        overrides["min_page_characters"] = args.hallucination_min_chars
+    if args.hallucination_label_token_length is not None:
+        overrides["label_min_token_length"] = args.hallucination_label_token_length
     return overrides
 
 

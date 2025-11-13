@@ -18,6 +18,7 @@ site2docs ingests local HTML snapshots stored under `site_backup/`, rebuilds the
 - **Link graph clustering**: Builds a NetworkX graph and derives cluster labels/slugs from URL patterns, directory depth, and TF-IDF terms.
 - **Markdown + manifest outputs**: Each cluster becomes one document with YAML front matter and citation blocks, plus a global `manifest.json` describing pages and clusters.
 - **Progress visibility**: Writes NDJSON entries to `logs/build_summary.json`, so long-running batches can be tailed in another terminal in combination with `--verbose`.
+- **Hallucination guardrails**: Emits `logs/hallucination_report.json`, which highlights clusters whose labels or summaries drift away from their sources.
 
 ## Architecture
 ```mermaid
@@ -83,6 +84,9 @@ uv run site2docs \
 | `--render-concurrency` | auto | Overrides the auto-calculated number of concurrent Playwright pages. |
 | `--allow-render-fallback` | `false` | Continue with raw HTML if rendering fails after retries. Without it, the command stops for investigation. |
 | `--verbose` | `false` | Print INFO-level progress logs to stdout. |
+| `--no-hallucination-check` | `false` | Skip the hallucination inspection node and omit the report. |
+| `--hallucination-min-chars` | `120` | Minimum characters required per page before emitting a warning in the report. |
+| `--hallucination-label-token-length` | `4` | Minimum token length that must appear in the source when validating cluster labels. |
 
 ## Output Structure
 ```
@@ -92,6 +96,7 @@ uv run site2docs \
   manifest.json           # Metadata for pages and clusters
   logs/
     build_summary.json    # NDJSON progress log
+    hallucination_report.json # Hallucination findings per cluster
 ```
 ### Markdown Snippet
 ```markdown
@@ -117,12 +122,14 @@ pages:
 - `logs/build_summary.json` is NDJSON; each line records `stage`, counts, and the last processed file.
 - `--verbose` mirrors the same milestones on stdout (render progress, extraction targets, etc.).
 - For lengthy jobs, keep `tail -f output/<name>/logs/build_summary.json` open in another terminal.
+- `logs/hallucination_report.json` lists inspected clusters, pages, and warnings (e.g., missing URLs or off-topic labels) for downstream auditors.
 
 ## Advanced Tips
 - **Custom expand labels**: Pass `--expand-texts "Show details,表示する"` to merge bespoke strings into the default dictionary.
 - **Concurrency tuning**: Limit `--render-concurrency` (e.g., `4`) on slow disks to reduce thrashing.
 - **Fallback strategy**: Omit `--allow-render-fallback` when you prefer to fail fast and fix problematic HTML snapshots.
 - **Log rotation**: Archive or truncate `logs/build_summary.json` after massive runs; it can grow to several MB.
+- **Audit trail**: Feed `logs/hallucination_report.json` into your RAG monitoring pipeline to highlight clusters that require manual review.
 
 ## Troubleshooting
 - **Playwright cannot launch**: Run `uv run playwright install chromium` and ensure required system libraries (GTK, etc.) are installed.

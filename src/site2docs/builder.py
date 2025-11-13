@@ -16,6 +16,7 @@ from .document import build_markdown, write_markdown
 from .extraction import ContentExtractor, ExtractedPage
 from .graphing import Cluster, SiteGraph
 from .manifest import build_manifest, write_manifest
+from .quality import HallucinationGuard
 from .rendering import RenderedPage, render_paths
 
 
@@ -25,6 +26,8 @@ class BuildResult:
     clusters: list[Cluster]
     render_fallback_pages: int
     render_fallback_reasons: tuple[str, ...]
+    quality_findings: int
+    quality_report_path: Path | None
 
 
 class ClusterValidationError(RuntimeError):
@@ -50,6 +53,7 @@ class Site2DocsBuilder:
         self.config = config
         self.extractor = ContentExtractor(config.extract)
         self.graph = SiteGraph(config.graph)
+        self.quality_guard = HallucinationGuard(config.quality)
         self._logger = logging.getLogger(self.__class__.__module__ + "." + self.__class__.__name__)
         self._summary_base = {
             "input_dir": str(config.input_dir),
@@ -119,6 +123,8 @@ class Site2DocsBuilder:
             clusters=clusters,
             render_fallback_pages=len(fallback_pages),
             render_fallback_reasons=tuple(fallback_reasons),
+            quality_findings=artifacts.get("quality_findings", 0),
+            quality_report_path=artifacts.get("quality_report"),
         )
 
     def _discover_html_files(self, directory: Path) -> Iterable[Path]:
@@ -242,6 +248,7 @@ class Site2DocsBuilder:
         generated_docs: list[str] = []
         last_document: str | None = None
         resolved_pages = self._resolve_cluster_pages(pages, clusters)
+        quality_info = self._run_quality_checks(clusters, resolved_pages)
         for index, cluster in enumerate(clusters, start=1):
             markdown = build_markdown(
                 cluster,
@@ -265,7 +272,19 @@ class Site2DocsBuilder:
         manifest_path = output.root / "manifest.json"
         write_manifest(manifest_path, manifest)
         self._logger.info("manifest.json を出力しました。")
-        return {"documents": generated_docs, "manifest": manifest_path, "last_document": last_document}
+        result: dict[str, Any] = {
+            "documents": generated_docs,
+            "manifest": manifest_path,
+            "last_document": last_document,
+        }
+        if quality_info is not None:
+            result.update(
+                {
+                    "quality_findings": quality_info[0],
+                    "quality_report": quality_info[1],
+                }
+            )
+        return result
 
     def _resolve_cluster_pages(
         self,
@@ -292,6 +311,30 @@ class Site2DocsBuilder:
         if missing:
             raise ClusterValidationError(missing_pages=missing)
         return resolved
+
+    def _run_quality_checks(
+        self,
+        clusters: Sequence[Cluster],
+        resolved_pages: Mapping[str, Sequence[ExtractedPage]],
+    ) -> tuple[int, Path] | None:
+        if not self.config.quality.enable_hallucination_checks:
+            return None
+        report = self.quality_guard.inspect(clusters, resolved_pages)
+        report_path = self.config.output.logs_dir / self.config.quality.report_filename
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(report.to_json(), encoding="utf-8")
+        self._logger.info(
+            "ハルシネーションチェックが完了しました (検出: %d 件)",
+            len(report.findings),
+        )
+        self._update_summary(
+            "quality_check",
+            pages=sum(len(resolved_pages.get(cluster.cluster_id, ())) for cluster in clusters),
+            clusters=len(clusters),
+            findings=len(report.findings),
+            report=str(report_path),
+        )
+        return len(report.findings), report_path
 
     def _infer_captured_at(self, path: Path) -> datetime:
         try:

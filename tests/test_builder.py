@@ -10,7 +10,7 @@ import pytest
 
 from site2docs import rendering
 from site2docs.builder import ClusterValidationError, Site2DocsBuilder, build_documents
-from site2docs.config import BuildConfig, OutputConfig
+from site2docs.config import BuildConfig, OutputConfig, QualityConfig
 from site2docs.extraction import ExtractedPage
 from site2docs.rendering import RenderedPage
 from site2docs.graphing import Cluster
@@ -56,10 +56,12 @@ def test_build_documents_writes_manifest_and_logs(tmp_path: Path, monkeypatch) -
     doc_path = output_dir / "docs" / f"{result.clusters[0].slug}.md"
     manifest_path = output_dir / "manifest.json"
     log_path = output_dir / "logs" / "build_summary.json"
+    quality_report_path = output_dir / "logs" / "hallucination_report.json"
 
     assert doc_path.exists()
     assert manifest_path.exists()
     assert log_path.exists()
+    assert quality_report_path.exists()
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["pages"][0]["created_at"].startswith("2024-01-02T03:04:05")
@@ -78,6 +80,11 @@ def test_build_documents_writes_manifest_and_logs(tmp_path: Path, monkeypatch) -
     assert "## 概要" in markdown
     assert "見出し" in markdown
     assert "ファイルパス" in markdown
+
+    report = json.loads(quality_report_path.read_text(encoding="utf-8"))
+    assert report["inspected_pages"] == 1
+    assert result.quality_report_path == quality_report_path
+    assert result.quality_findings == len(report["findings"])
 
 
 def test_discover_html_files_supports_multiple_extensions(tmp_path: Path) -> None:
@@ -207,3 +214,22 @@ def test_extract_rendered_pages_recovers_from_extraction_failure(tmp_path: Path,
     ]
     events = [json.loads(line) for line in summary_lines]
     assert any(event.get("failed") == 1 for event in events)
+
+
+def test_quality_checks_can_be_disabled(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(rendering, "async_playwright", None)
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    html_path = input_dir / "page.html"
+    html_path.write_text("<html><body>sample</body></html>", encoding="utf-8")
+
+    config = BuildConfig(
+        input_dir=input_dir,
+        output=OutputConfig(tmp_path / "output"),
+        quality=QualityConfig(enable_hallucination_checks=False),
+    )
+
+    result = build_documents(config)
+
+    assert result.quality_report_path is None
+    assert result.quality_findings == 0
