@@ -85,13 +85,8 @@ def write_markdown(path: Path, content: str) -> None:
 
 def _build_summary(pages: Sequence[ExtractedPage]) -> list[str]:
     summary_lines: list[str] = []
-    for page in pages:
-        snippet = _first_significant_line(page.markdown)
-        if not snippet:
-            continue
+    for _, snippet in build_summary_snippets(pages):
         summary_lines.append(f"- {snippet}")
-        if len(summary_lines) >= 3:
-            break
     return summary_lines
 
 
@@ -104,3 +99,19 @@ def _first_significant_line(markdown: str) -> str:
             return f"{line[:117]}..."
         return line
     return ""
+
+
+def build_summary_snippets(
+    pages: Sequence[ExtractedPage], limit: int = 3
+) -> list[tuple[str, str]]:
+    """ページごとの重要文を抽出して返します。"""
+
+    snippets: list[tuple[str, str]] = []
+    for page in pages:
+        snippet = _first_significant_line(page.markdown)
+        if not snippet:
+            continue
+        snippets.append((page.page_id, snippet))
+        if len(snippets) >= max(1, limit):
+            break
+    return snippets

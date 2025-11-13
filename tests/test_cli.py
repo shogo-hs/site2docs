@@ -85,6 +85,31 @@ def test_cli_collects_graph_overrides(tmp_path: Path) -> None:
     assert overrides["label_tfidf_terms"] == 8
 
 
+def test_cli_collects_quality_overrides(tmp_path: Path) -> None:
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    output_dir = tmp_path / "output"
+    args = cli.parse_args(
+        [
+            "--input",
+            str(input_dir),
+            "--out",
+            str(output_dir),
+            "--no-hallucination-check",
+            "--hallucination-min-chars",
+            "80",
+            "--hallucination-label-token-length",
+            "5",
+        ]
+    )
+
+    overrides = cli._collect_quality_overrides(args)
+
+    assert overrides["enable_hallucination_checks"] is False
+    assert overrides["min_page_characters"] == 80
+    assert overrides["label_min_token_length"] == 5
+
+
 def test_parse_launch_options_returns_dict() -> None:
     parsed = cli._parse_launch_options('{"headless": false, "proxy": {"server": "http://proxy"}}')
 

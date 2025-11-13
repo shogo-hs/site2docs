@@ -20,6 +20,7 @@ site2docs は、`site_backup/` に保存されたローカル HTML 群を解析�
 - **リンクグラフ・クラスタリング**: NetworkX でサイトグラフを構築し、URL パターン・ディレクトリ深度・TF-IDF に基づいてクラスタラベル/スラッグを自動生成。
 - **Markdown + manifest**: 各クラスタを 1 ドキュメントに統合し、YAML フロントマターと出典情報を付与。`manifest.json` にはページ/クラスタ単位のメタデータを保持。
 - **進捗可視化**: `logs/build_summary.json` にステージごとの NDJSON ログを書き込み、`--verbose` と合わせて長時間バッチを追跡可能。
+- **ハルシネーション抑制**: 生成されたドキュメントの信頼性を `logs/hallucination_report.json` で可視化。クラスタラベルや要約が出典と乖離していないか自動検査します。
 
 ## アーキテクチャ概要
 ```mermaid
@@ -129,6 +130,9 @@ CLI から直接指定できない項目を変更したい場合は、以下の�
 | `--render-concurrency` | 自動推定 | Playwright 同時ページ数。CPU コア数と入力件数からの推定値を上書きする際に指定。 |
 | `--allow-render-fallback` | `false` | レンダリング再試行後も失敗したページをローカル HTML のまま処理して継続。指定しない場合は例外で停止。 |
 | `--verbose` | `false` | INFO ログを標準出力へ出し、進捗をリアルタイムに確認。 |
+| `--no-hallucination-check` | `false` | 品質検証ノードを無効化し、ハルシネーションレポートを省略。 |
+| `--hallucination-min-chars` | `120` | 1 ページあたりに必要な最小文字数。下回るとレポートに警告を追記。 |
+| `--hallucination-label-token-length` | `4` | ラベル検証に使う最小トークン長。該当語が本文に無い場合に警告。 |
 
 ## 出力構成
 ```
@@ -138,6 +142,7 @@ CLI から直接指定できない項目を変更したい場合は、以下の�
   manifest.json           # pages/clusters のメタデータ
   logs/
     build_summary.json    # NDJSON 形式の進捗ログ
+    hallucination_report.json # ハルシネーション検知レポート
 ```
 ### Markdown の例 (抜粋)
 ```markdown
@@ -171,6 +176,7 @@ pages: [pg_001]
 | `extracting` | 本文抽出ループ | `extracted` / `last_file` |
 | `clustering` | グラフ構築とクラスタリング | `clusters` |
 | `writing` | Markdown 出力中 | `documents_count` / `last_document` |
+| `quality_check` | ハルシネーション検知レポート生成 | `findings` / `report` |
 | `completed` | すべての成果物を生成済み | `documents` / `manifest` |
 
 ログが停止した stage を特定できるため、失敗箇所の切り分けに役立ちます。異常終了時は最後のレコードと同じ `stage` の INFO ログを参照してください。
@@ -181,6 +187,7 @@ pages: [pg_001]
 - **ラベル抽出のチューニング**: `GraphConfig.label_token_pattern` で TF-IDF のトークン正規表現を上書きでき、日本語や多言語サイトでも意図どおりのクラスタラベルを得られます。
 - **フォールバック戦略**: 品質を最優先する場合は `--allow-render-fallback` を付けずに失敗ページを洗い出し、HTML 側を修正して再実行してください。
 - **ログローテーション**: 大規模サイトでは `logs/build_summary.json` が数 MB になる場合があります。完了後にアーカイブまたは削除してディスクを管理してください。
+- **ハルシネーションレポート**: `logs/hallucination_report.json` の `findings` を参照すると、クラスタラベルと本文のズレや出典 URL 欠落などの警告を RAG ワークフローへ共有できます。
 
 ## トラブルシューティング
 - **Playwright がブラウザを起動できない**: `uv run playwright install chromium` を実行し、必要な依存パッケージ（libgtk など）が OS に入っているか確認してください。

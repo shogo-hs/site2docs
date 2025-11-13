@@ -122,6 +122,18 @@ class GraphConfig:
 
 
 @dataclass(slots=True)
+class QualityConfig:
+    """ビルド結果のハルシネーション検知に関する設定。"""
+
+    enable_hallucination_checks: bool = True
+    min_page_characters: int = 120
+    label_min_token_length: int = 4
+    summary_snippet_limit: int = 3
+    require_source_url: bool = True
+    report_filename: str = "hallucination_report.json"
+
+
+@dataclass(slots=True)
 class OutputConfig:
     """出力ディレクトリの設定。"""
 
@@ -143,6 +155,7 @@ class BuildConfig:
     render: RenderConfig = field(default_factory=RenderConfig)
     extract: ExtractionConfig = field(default_factory=ExtractionConfig)
     graph: GraphConfig = field(default_factory=GraphConfig)
+    quality: QualityConfig = field(default_factory=QualityConfig)
     created_at: datetime = field(default_factory=default_timestamp)
 
     @classmethod
@@ -156,6 +169,7 @@ class BuildConfig:
         launch_options: Mapping[str, Any] | None = None,
         extraction_overrides: Mapping[str, Any] | None = None,
         graph_overrides: Mapping[str, Any] | None = None,
+        quality_overrides: Mapping[str, Any] | None = None,
     ) -> "BuildConfig":
         defaults = RenderConfig()
         render_kwargs: dict[str, Any] = {}
@@ -174,10 +188,12 @@ class BuildConfig:
         render_config = RenderConfig(**render_kwargs)
         extract_config = ExtractionConfig(**(dict(extraction_overrides) if extraction_overrides else {}))
         graph_config = GraphConfig(**(dict(graph_overrides) if graph_overrides else {}))
+        quality_config = QualityConfig(**(dict(quality_overrides) if quality_overrides else {}))
         return cls(
             input_dir=input_dir,
             output=OutputConfig(output_dir),
             render=render_config,
             extract=extract_config,
             graph=graph_config,
+            quality=quality_config,
         )
