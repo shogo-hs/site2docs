@@ -53,6 +53,17 @@ flowchart LR
    uv run site2docs --help
    ```
 
+## LLM 設定 (.env)
+LLM ベースの要約や外部 API を利用する際は、リポジトリ直下に `.env` を作成して API キーやモデルを管理します。
+
+1. サンプルをコピー
+   ```bash
+   cp .env.example .env
+   ```
+2. `SITE2DOCS_API_KEY` と `SITE2DOCS_MODEL` を実際の値へ置き換えます。互換性のため `OPENAI_API_KEY` / `OPENAI_MODEL` も利用できます。
+
+CLI は起動時に `.env` を自動的に読み込み、既にエクスポート済みの値があればそちらを優先します。
+
 ## 入力データの準備
 `site_backup/` にはアーカイブ済みの HTML をホストごとに配置します。既存ポータルのバックアップを持っていない場合は、以下のいずれかの方法でサンプルを用意してください。
 
